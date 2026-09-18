@@ -2,6 +2,7 @@
   "name": "agentguard",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Diff-first GitHub App orchestrator for multi-agent repositories.",
   "scripts": {
     "dev": "tsx watch backend/src/index.ts",
