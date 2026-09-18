@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { Probot, ProbotOctokit } from "probot";
 import { config } from "./config.js";
 import { enqueuePush } from "./queue.js";
+import "./worker.js";
 
 const app = new Probot({
   appId: config.githubAppId,

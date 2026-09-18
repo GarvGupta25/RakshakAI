@@ -12,7 +12,10 @@ The server runs without external credentials for local development. Configure `.
 
 ```bash
 npm install
+npm run sandbox:build
 npm run dev
 ```
 
 Use `POST /webhooks/github` for signed GitHub webhooks and `GET /health` for health checks.
+
+Build the isolated scanner image once with `docker build -t agentguard-sandbox sandbox`.

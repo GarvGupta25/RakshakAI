@@ -6,6 +6,7 @@
   "description": "Diff-first GitHub App orchestrator for multi-agent repositories.",
   "scripts": {
     "dev": "tsx watch backend/src/index.ts",
+    "sandbox:build": "docker build -t agentguard-sandbox sandbox",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/backend/src/index.js",
     "test": "vitest run",
