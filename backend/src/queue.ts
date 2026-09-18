@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import IORedis from "ioredis";
+import { Redis } from "ioredis";
 import { config } from "./config.js";
 
 export interface PushJob {
@@ -11,7 +11,7 @@ export interface PushJob {
   ref: string;
 }
 
-export const connection = new IORedis(config.redisUrl, { maxRetriesPerRequest: null });
+export const connection = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
 export const pushQueue = new Queue<PushJob>("push-analysis", { connection });
 
 export async function enqueuePush(job: PushJob) {
