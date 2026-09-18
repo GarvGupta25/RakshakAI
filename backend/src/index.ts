@@ -8,6 +8,7 @@ import { connection } from "./queue.js";
 import { IncidentStore } from "./incidents.js";
 import { getRecentCommitDiffs } from "./github.js";
 import { callReasoningModel } from "./llm.js";
+import { RepoStateStore } from "./state.js";
 
 const app = new Probot({
   appId: config.githubAppId,
@@ -31,11 +32,16 @@ app.on("installation.created", async (context) => {
 
 const middleware = await app.getNodeMiddleware({ path: "/webhooks/github" });
 const incidents = new IncidentStore(connection);
+const repoStates = new RepoStateStore(connection);
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] ?? character);
 
 createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
   if (url.pathname === "/health") { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ ok: true })); return; }
+  const stateMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)$/);
+  if (stateMatch && request.method === "GET") {
+    response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(await repoStates.getRepoState(stateMatch[1]))); return;
+  }
   if (url.pathname === "/explain") {
     const repoId = url.searchParams.get("repo"); const sha = url.searchParams.get("sha");
     if (!repoId || !sha) { response.writeHead(400); response.end("repo and sha are required"); return; }

@@ -38,3 +38,12 @@ export class RepoStateStore {
     return { known_file_list: state.known_file_list, recent_verdicts: state.recent_verdicts.slice(-5) };
   }
 }
+
+export function deriveHealthScore(verdicts: RepoState["recent_verdicts"]): number {
+  const weights = { allow: 0, allow_with_flag: 4, block: 20 } as const;
+  return Math.max(0, 100 - verdicts.slice(-20).reduce((total, item) => total + weights[item.verdict], 0));
+}
+
+export function filesFromDiff(diff: string): string[] {
+  return [...new Set([...diff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map(match => match[1]).filter(file => file !== "/dev/null"))];
+}
