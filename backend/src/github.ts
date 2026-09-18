@@ -25,3 +25,11 @@ export async function setCommitCheck(job: { owner: string; repo: string; sha: st
   });
   if (!response.ok) throw new Error(`GitHub check creation failed (${response.status})`);
 }
+
+export async function getRecentCommitDiffs(job: { owner: string; repo: string; installationId: number }, limit = 10): Promise<string[]> {
+  const token = await getInstallationToken(job.installationId);
+  const response = await fetch(`https://api.github.com/repos/${job.owner}/${job.repo}/commits?per_page=${limit}`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error(`GitHub commit history retrieval failed (${response.status})`);
+  const commits = await response.json() as Array<{ sha: string }>;
+  return Promise.all(commits.map(commit => getCommitDiff({ ...job, sha: commit.sha })));
+}
