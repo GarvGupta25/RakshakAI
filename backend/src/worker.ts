@@ -9,6 +9,7 @@ import { callCheapModel, callReasoningModel } from "./llm.js";
 import { setCommitCheck } from "./github.js";
 import { DiscordNotifier } from "./notifications.js";
 import { IncidentStore } from "./incidents.js";
+import { applySafeCorrection } from "./corrections.js";
 
 const locks = new RepoLock(connection);
 const state = new RepoStateStore(connection);
@@ -30,12 +31,18 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
       return { route: "remediate", reason: "secret_detected" };
     }
     const classification = classifyDiff(diff);
-    if (classification === "style_only") return { route: "auto_correct", classification };
+    if (classification === "style_only") {
+      const correction = await applySafeCorrection(job.data);
+      await state.updateRepoState(job.data.repoId, { last_scanned_commit_sha: job.data.sha, known_file_list: knownFiles, auto_corrections_applied: priorState.auto_corrections_applied + Number(correction.applied) });
+      await setCommitCheck(job.data, "success", correction.reason);
+      return { route: "auto_correct", classification, correction };
+    }
     const context = await state.getRelevantContext(job.data.repoId, diff);
     const cheap = await callCheapModel(diff, context);
     if (cheap.risk_level === "safe") {
       await state.updateRepoState(job.data.repoId, { last_scanned_commit_sha: job.data.sha, known_file_list: knownFiles });
-      return { route: "auto_correct", classification, cheap };
+      await setCommitCheck(job.data, "success", cheap.reason);
+      return { route: "allow", classification, cheap };
     }
     const final = await callReasoningModel(diff, context);
     const recent_verdicts = [...priorState.recent_verdicts, { commit_sha: job.data.sha, risk_level: cheap.risk_level, verdict: final.verdict, timestamp: new Date().toISOString() }].slice(-50);
