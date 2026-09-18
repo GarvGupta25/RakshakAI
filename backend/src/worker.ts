@@ -24,7 +24,7 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
     const knownFiles = [...new Set([...priorState.known_file_list, ...filesFromDiff(diff)])].slice(-5_000);
     const scan = await scanDiffInSandbox(diff);
     if (scan.secretsFound) {
-      await state.updateRepoState(job.data.repoId, { last_scanned_commit_sha: job.data.sha, known_file_list: knownFiles });
+      await state.updateRepoState(job.data.repoId, { known_file_list: knownFiles });
       await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: "Potential credential detected in the actual patch." });
       await setCommitCheck(job.data, "failure", "Potential credential detected. The change requires human review.");
       await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: "Potential credential detected in the actual patch.", explainUrl: `/explain?repo=${job.data.repoId}&sha=${job.data.sha}` });
@@ -47,7 +47,7 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
     const final = await callReasoningModel(diff, context);
     const recent_verdicts = [...priorState.recent_verdicts, { commit_sha: job.data.sha, risk_level: cheap.risk_level, verdict: final.verdict, timestamp: new Date().toISOString() }].slice(-50);
     await state.updateRepoState(job.data.repoId, {
-      last_scanned_commit_sha: job.data.sha,
+      ...(final.verdict !== "block" ? { last_scanned_commit_sha: job.data.sha } : {}),
       known_file_list: knownFiles, recent_verdicts, health_score: deriveHealthScore(recent_verdicts)
     });
     if (final.verdict === "block") {
