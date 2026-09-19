@@ -8,6 +8,8 @@
     "dev": "tsx watch backend/src/index.ts",
     "dev:dashboard": "next dev dashboard",
     "sandbox:build": "docker build -t agentguard-sandbox sandbox",
+    "infra:up": "docker compose up -d redis",
+    "infra:down": "docker compose down",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/backend/src/index.js",
     "build:dashboard": "next build dashboard",

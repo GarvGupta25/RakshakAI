@@ -8,6 +8,6 @@ export const config = {
   githubPrivateKey: process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, "\n"),
   groqApiKey: process.env.GROQ_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
-  discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL
-  ,enableBranchRollback: process.env.ENABLE_BRANCH_ROLLBACK === "true"
+  discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL,
+  enableBranchRollback: process.env.ENABLE_BRANCH_ROLLBACK === "true"
 };
