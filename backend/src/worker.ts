@@ -10,6 +10,7 @@ import { setCommitCheck } from "./github.js";
 import { DiscordNotifier } from "./notifications.js";
 import { IncidentStore } from "./incidents.js";
 import { applySafeCorrection } from "./corrections.js";
+import { remediateBlockedChange } from "./remediation.js";
 
 const locks = new RepoLock(connection);
 const state = new RepoStateStore(connection);
@@ -28,7 +29,7 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
       await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: "Potential credential detected in the actual patch." });
       await setCommitCheck(job.data, "failure", "Potential credential detected. The change requires human review.");
       await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: "Potential credential detected in the actual patch.", explainUrl: `/explain?repo=${job.data.repoId}&sha=${job.data.sha}` });
-      return { route: "remediate", reason: "secret_detected" };
+      return { route: "remediate", reason: "secret_detected", remediation: await remediateBlockedChange(job.data, priorState.last_scanned_commit_sha) };
     }
     const classification = classifyDiff(diff);
     if (classification === "style_only") {
@@ -55,7 +56,7 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
       await setCommitCheck(job.data, "failure", final.human_summary);
       await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: final.human_summary, explainUrl: `/explain?repo=${job.data.repoId}&sha=${job.data.sha}` });
     } else await setCommitCheck(job.data, "success", final.human_summary);
-    return { route: final.verdict === "block" ? "remediate" : "allow", cheap, final };
+    return { route: final.verdict === "block" ? "remediate" : "allow", cheap, final, ...(final.verdict === "block" ? { remediation: await remediateBlockedChange(job.data, priorState.last_scanned_commit_sha) } : {}) };
   } finally { await release(); }
 }, { connection });
 
