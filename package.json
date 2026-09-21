@@ -16,7 +16,9 @@
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@octokit/auth-app": "^8.1.0",
     "@octokit/rest": "^22.0.0",
@@ -28,6 +30,9 @@
     "probot": "^14.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-javascript": "^0.21.0",
+    "tree-sitter-typescript": "^0.21.2",
     "zod": "^3.24.0"
   },
   "devDependencies": {
