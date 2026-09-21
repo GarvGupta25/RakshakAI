@@ -12,6 +12,7 @@ import { DiscordNotifier } from "./notifications.js";
 import { IncidentStore } from "./incidents.js";
 import { applySafeCorrection } from "./corrections.js";
 import { remediateBlockedChange } from "./remediation.js";
+import { rotateCompromisedKeyOIDC } from "./oidc.js";
 
 const locks = new RepoLock(connection);
 const state = new RepoStateStore(connection);
@@ -26,6 +27,8 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
     const knownFiles = [...new Set([...priorState.known_file_list, ...filesFromDiff(diff)])].slice(-5_000);
     const scan = await scanDiffInSandbox(diff);
     if (scan.secretsFound) {
+      // Attempt OIDC-based key rotation before rollback
+      await rotateCompromisedKeyOIDC("detected-secret", "aws").catch(e => console.error("Key rotation failed", e));
       await state.updateRepoState(job.data.repoId, { known_file_list: knownFiles });
       await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: "Potential credential detected in the actual patch." });
       await setCommitCheck(job.data, "failure", "Potential credential detected. The change requires human review.");
