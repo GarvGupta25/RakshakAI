@@ -6,7 +6,8 @@ import { connection, type PushJob } from "./queue.js";
 import { scanDiffInSandbox } from "./sandbox.js";
 import { RepoStateStore, deriveHealthScore, filesFromDiff } from "./state.js";
 import { callCheapModel, callReasoningModel } from "./llm.js";
-import { setCommitCheck } from "./github.js";
+import { config } from "./config.js";
+import { setCommitCheck, postCommitComment } from "./github.js";
 import { DiscordNotifier } from "./notifications.js";
 import { IncidentStore } from "./incidents.js";
 import { applySafeCorrection } from "./corrections.js";
@@ -54,7 +55,11 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
     if (final.verdict === "block") {
       await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: final.human_summary, verdict: final });
       await setCommitCheck(job.data, "failure", final.human_summary);
-      await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: final.human_summary, explainUrl: `/explain?repo=${job.data.repoId}&sha=${job.data.sha}` });
+      const explainUrl = `/explain?repo=${job.data.repoId}&sha=${job.data.sha}`;
+      await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: final.human_summary, explainUrl });
+      
+      const commentBody = `🚨 **AgentGuard blocked this change.**\n\n${final.human_summary}\n\n<details><summary>Technical Summary</summary>\n\n${final.technical_summary}\n</details>\n\n\`\`\`mermaid\ngraph TD\n    Commit["Commit ${job.data.sha.slice(0, 7)}"] --> Blocked((Blocked))\n    Blocked -.->|Reason| Reason["${final.human_summary.replace(/"/g, "'")}"]\n\`\`\`\n\n[View detailed explanation](${config.discordWebhookUrl ? 'javascript:void(0)' : 'javascript:void(0)' /* fallback, real url would require base url config */})`;
+      await postCommitComment(job.data, commentBody).catch(e => console.error("Failed to post comment", e));
     } else await setCommitCheck(job.data, "success", final.human_summary);
     return { route: final.verdict === "block" ? "remediate" : "allow", cheap, final, ...(final.verdict === "block" ? { remediation: await remediateBlockedChange(job.data, priorState.last_scanned_commit_sha) } : {}) };
   } finally { await release(); }

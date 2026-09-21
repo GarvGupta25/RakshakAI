@@ -33,3 +33,12 @@ export async function getRecentCommitDiffs(job: { owner: string; repo: string; i
   const commits = await response.json() as Array<{ sha: string }>;
   return Promise.all(commits.map(commit => getCommitDiff({ ...job, sha: commit.sha })));
 }
+
+export async function postCommitComment(job: { owner: string; repo: string; sha: string; installationId: number }, body: string) {
+  const token = await getInstallationToken(job.installationId);
+  const response = await fetch(`https://api.github.com/repos/${job.owner}/${job.repo}/commits/${job.sha}/comments`, {
+    method: "POST", headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ body })
+  });
+  if (!response.ok) throw new Error(`GitHub commit comment creation failed (${response.status})`);
+}
