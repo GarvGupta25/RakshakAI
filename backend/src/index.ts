@@ -26,8 +26,13 @@ app.on("push", async (context) => {
   });
 });
 
-app.on("installation.created", async (context) => {
-  context.log.info({ installationId: context.payload.installation.id }, "installation received; repositories will be provisioned on first push");
+app.on(["installation.created", "installation_repositories.added" as any], async (context) => {
+  const repositories = "repositories" in context.payload ? context.payload.repositories : (context.payload as any).repositories_added || [];
+  for (const repo of repositories) {
+    const repoId = String(repo.id);
+    await repoStates.updateRepoState(repoId, { known_file_list: [] });
+    context.log.info({ repoId, repoName: repo.name }, "provisioned RepoState for repository");
+  }
 });
 
 const middleware = await app.getNodeMiddleware({ path: "/webhooks/github" });
