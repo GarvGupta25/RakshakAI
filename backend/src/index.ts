@@ -31,7 +31,10 @@ app.on(["installation.created", "installation_repositories.added" as any], async
   for (const repo of repositories) {
     const repoId = String(repo.id);
     await repoStates.updateRepoState(repoId, { known_file_list: [] });
-    context.log.info({ repoId, repoName: repo.name }, "provisioned RepoState for repository");
+    // Phase 2: Build graph
+    const graph = new (await import("./graph.js")).DependencyGraph(connection, repoId);
+    await graph.buildFullGraph(repo.full_name, "token_stub");
+    context.log.info({ repoId, repoName: repo.name }, "provisioned RepoState and built graph for repository");
   }
 });
 

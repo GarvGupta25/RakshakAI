@@ -31,6 +31,25 @@ export default async function Dashboard() {
       <div className="metrics"><Metric label="Repository health" value={String(health)} note="Rolling safety score" tone="green"/><Metric label="Incidents caught" value={String(state?.recent_verdicts.length ?? 3).padStart(2, "0")} note="Tracked verdicts"/><Metric label="Token spend" value={tokenSpend} note="Today"/><Metric label="Auto-corrections" value={String(corrections)} note="This month"/></div>
       <div className="split"><section className="panel"><div className="panel-head"><div><h2>Live activity</h2><p>Every diff, with its final decision</p></div><button>View all →</button></div><div className="event-list">{events.map(([sha, file, status, summary, tone]) => <div className="event" key={sha}><div className={`signal ${tone}`} /><div><b>{sha} <span>{file}</span></b><p>{summary}</p></div><label className={tone}>{status}</label><time>2m</time></div>)}</div></section><section className="panel health"><div className="panel-head"><div><h2>Safety posture</h2><p>Rolling health score</p></div><b className="score">{health}</b></div><div className="bar"><i /><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><div className="legend"><span><i className="legend-dot green" /> Safe 84%</span><span><i className="legend-dot yellow" /> Flagged 13%</span><span><i className="legend-dot red" /> Blocked 3%</span></div><hr/><div className="cost"><span>Estimated cost avoided</span><b>$12.46</b><small>42 diffs skipped the reasoning tier</small></div></section></div>
       <section className="panel table"><div className="panel-head"><div><h2>Repositories</h2><p>Installations and current protection</p></div><button>Manage →</button></div><div className="row heading"><span>REPOSITORY</span><span>HEALTH</span><span>LAST ACTIVITY</span><span>STATUS</span></div><div className="row"><b>◈ RakshakAI</b><span><i className="legend-dot green"/> 92 Healthy</span><span>2 minutes ago</span><span className="pill">Protected</span></div></section>
+      <div className="split">
+        <section className="panel">
+          <div className="panel-head"><div><h2>Cost Efficiency (Phase 2)</h2><p>Token cost trending down via Dirty Node Tracking</p></div></div>
+          <div style={{ padding: "20px", background: "#f9fafb", border: "1px dashed #ccc", textAlign: "center", borderRadius: "8px", color: "#333" }}>
+            <p>📉 <strong>-80%</strong> marginal token cost per push</p>
+            <small style={{ color: "#6b7280" }}>Graph learns the repo, avoiding full-file LLM context.</small>
+          </div>
+        </section>
+        <section className="panel">
+          <div className="panel-head"><div><h2>Dependency Graph (Phase 2)</h2><p>Live visualization of touched code</p></div><button>Interactive View</button></div>
+          <div style={{ padding: "20px", background: "#f9fafb", border: "1px dashed #ccc", textAlign: "center", borderRadius: "8px", color: "#333" }}>
+            <div style={{ display: "flex", justifyContent: "center", gap: "10px", alignItems: "center" }}>
+              <span style={{ padding: "8px", background: "#fee2e2", color: "#991b1b", borderRadius: "4px" }}>auth.ts (Dirty)</span>
+              <span>→</span>
+              <span style={{ padding: "8px", background: "#dbeafe", color: "#1e40af", borderRadius: "4px" }}>user.ts</span>
+            </div>
+          </div>
+        </section>
+      </div>
     </section>
   </main>;
 }

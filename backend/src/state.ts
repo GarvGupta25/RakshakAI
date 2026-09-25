@@ -1,4 +1,5 @@
 import type { Redis } from "ioredis";
+import { DependencyGraph } from "./graph.js";
 
 export type RiskLevel = "safe" | "needs_review" | "dangerous";
 export type Verdict = "allow" | "allow_with_flag" | "block";
@@ -33,9 +34,28 @@ export class RepoStateStore {
     return next;
   }
 
-  async getRelevantContext(repoId: string, _diff: string) {
+  async getRelevantContext(repoId: string, diff: string) {
     const state = await this.getRepoState(repoId);
-    return { known_file_list: state.known_file_list, recent_verdicts: state.recent_verdicts.slice(-5) };
+    const graph = new DependencyGraph(this.redis, repoId);
+    
+    // Mark files from diff as dirty in the graph
+    const changedFiles = filesFromDiff(diff);
+    for (const file of changedFiles) {
+      await graph.markDirty(file);
+    }
+    
+    const dirtyNodes = await graph.getDirtyNodes();
+    await graph.clearDirty();
+    
+    // Fallback to Phase 1 context if the graph is empty (e.g. initial setup not done)
+    if (dirtyNodes.length === 0) {
+      return { known_file_list: state.known_file_list, recent_verdicts: state.recent_verdicts.slice(-5) };
+    }
+    
+    return { 
+      dirty_subgraph: dirtyNodes,
+      recent_verdicts: state.recent_verdicts.slice(-5) 
+    };
   }
 }
 
