@@ -14,6 +14,7 @@ import { applySafeCorrection } from "./corrections.js";
 import { remediateBlockedChange } from "./remediation.js";
 import { rotateCompromisedKeyOIDC } from "./oidc.js";
 import { incidentExplainUrl } from "./urls.js";
+import { renderMermaid } from "./graph.js";
 
 const locks = new RepoLock(connection);
 const state = new RepoStateStore(connection);
@@ -78,7 +79,8 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
       const explainUrl = incidentExplainUrl(config.publicUrl, job.data.repoId, job.data.sha);
       await saveAndNotify(incident, { repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: final.human_summary, explainUrl });
       
-      const commentBody = `🚨 **AgentGuard blocked this change.**\n\n${final.human_summary}\n\n<details><summary>Technical Summary</summary>\n\n${final.technical_summary}\n</details>\n\n\`\`\`mermaid\ngraph TD\n    Commit["Commit ${job.data.sha.slice(0, 7)}"] --> Blocked((Blocked))\n    Blocked --> Review["Human review required"]\n\`\`\`\n\n[View detailed explanation](${explainUrl})`;
+      const diagram = context.dirty_subgraph ? renderMermaid(context.dirty_subgraph) : `graph TD\n  Commit["Commit ${job.data.sha.slice(0, 7)}"] --> Blocked((Blocked))`;
+      const commentBody = `🚨 **AgentGuard blocked this change.**\n\n${final.human_summary}\n\n<details><summary>Technical Summary</summary>\n\n${final.technical_summary}\n</details>\n\n\`\`\`mermaid\n${diagram}\n\`\`\`\n\n[View detailed explanation](${explainUrl})`;
       await postCommitComment(job.data, commentBody).catch(e => console.error("Failed to post comment", e));
     } else await setCommitCheck(job.data, "success", final.human_summary);
     return { route: final.verdict === "block" ? "remediate" : "allow", cheap, final, ...(final.verdict === "block" ? { remediation: await remediateBlockedChange(job.data, priorState.last_scanned_commit_sha) } : {}) };

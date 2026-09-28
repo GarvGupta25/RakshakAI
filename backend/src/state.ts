@@ -47,16 +47,16 @@ export class RepoStateStore {
       await graph.markDirty(file);
     }
     
-    const dirtyNodes = await graph.getDirtyNodes();
+    const dirtySubgraph = await graph.getDirtySubgraph();
     await graph.clearDirty();
     
     // Fallback to Phase 1 context if the graph is empty (e.g. initial setup not done)
-    if (dirtyNodes.length === 0) {
+    if (dirtySubgraph.nodes.length === 0) {
       return { known_file_list: state.known_file_list, recent_verdicts: state.recent_verdicts.slice(-5) };
     }
     
     return { 
-      dirty_subgraph: dirtyNodes,
+      dirty_subgraph: dirtySubgraph,
       recent_verdicts: state.recent_verdicts.slice(-5) 
     };
   }

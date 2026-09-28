@@ -91,6 +91,10 @@ createServer(async (request, response) => {
   if (stateMatch && request.method === "GET") {
     response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(await repoStates.getRepoState(stateMatch[1]))); return;
   }
+  const graphMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)\/graph$/);
+  if (graphMatch && request.method === "GET") {
+    response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(await new DependencyGraph(connection, graphMatch[1]).snapshot())); return;
+  }
   if (url.pathname === "/explain") {
     const repoId = url.searchParams.get("repo"); const sha = url.searchParams.get("sha");
     if (!repoId || !sha) { response.writeHead(400); response.end("repo and sha are required"); return; }

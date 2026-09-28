@@ -5,6 +5,7 @@ import ts from "tree-sitter-typescript";
 
 export interface GraphNode { id: string; type: "file" | "function" | "class"; content: string; parent?: string }
 export interface GraphEdge { from: string; to: string; type: "imports" | "calls" }
+export interface GraphSnapshot { nodes: GraphNode[]; edges: GraphEdge[] }
 const sourceExtension = /\.(?:[cm]?[jt]sx?)$/;
 const importPattern = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|require\(["']([^"']+)["']\)/g;
 const parser = new Parser();
@@ -71,6 +72,15 @@ export function parseDependencyGraph(sources: Record<string, string>) {
   return { nodes, edges };
 }
 
+const mermaidId = (id: string) => `n${Buffer.from(id).toString("hex").slice(0, 24)}`;
+export function renderMermaid(graph: GraphSnapshot) {
+  if (!graph.nodes.length) return "graph LR\n  Empty[No dependency context]";
+  const labels = graph.nodes.map(node => `  ${mermaidId(node.id)}["${node.id.replace(/["<>]/g, "")}"]`);
+  const known = new Set(graph.nodes.map(node => node.id));
+  const edges = graph.edges.filter(edge => known.has(edge.from) && known.has(edge.to)).map(edge => `  ${mermaidId(edge.from)} -->|${edge.type}| ${mermaidId(edge.to)}`);
+  return ["graph LR", ...labels, ...edges].join("\n");
+}
+
 export class DependencyGraph {
   constructor(private readonly redis: Redis, private readonly repoId: string) {}
   private key(type: "nodes" | "edges" | "reverse" | "dirty" | "member-files") { return `agentguard:repo:${this.repoId}:graph:${type}`; }
@@ -84,6 +94,10 @@ export class DependencyGraph {
     if (!edges.some(item => item.from === edge.from && item.to === edge.to && item.type === edge.type)) await this.redis.hset(this.key(index), id, JSON.stringify([...edges, edge]));
   }
   async getEdges(from: string): Promise<GraphEdge[]> { const raw = await this.redis.hget(this.key("edges"), from); return raw ? JSON.parse(raw) : []; }
+  async snapshot(): Promise<GraphSnapshot> {
+    const [nodeValues, edgeValues] = await Promise.all([this.redis.hvals(this.key("nodes")), this.redis.hvals(this.key("edges"))]);
+    return { nodes: nodeValues.map(value => JSON.parse(value)), edges: edgeValues.flatMap(value => JSON.parse(value)) };
+  }
   async markDirty(nodeId: string) {
     const raw = await this.redis.hget(this.key("reverse"), nodeId);
     const dependents: GraphEdge[] = raw ? JSON.parse(raw) : [];
@@ -97,6 +111,11 @@ export class DependencyGraph {
     if (!ids.length) return [];
     const nodes = await this.redis.hmget(this.key("nodes"), ...ids);
     return nodes.filter((node): node is string => node !== null).map(node => JSON.parse(node));
+  }
+  async getDirtySubgraph(): Promise<GraphSnapshot> {
+    const nodes = await this.getDirtyNodes();
+    const edges = (await Promise.all(nodes.map(node => this.getEdges(node.id)))).flat();
+    return { nodes, edges };
   }
   async clearDirty() { await this.redis.del(this.key("dirty")); }
   async buildFullGraph(sources: Record<string, string>) {
