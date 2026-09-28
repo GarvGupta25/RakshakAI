@@ -4,7 +4,7 @@ import { DependencyGraph } from "./graph.js";
 export type RiskLevel = "safe" | "needs_review" | "dangerous";
 export type Verdict = "allow" | "allow_with_flag" | "block";
 export type AnalysisTier = "static" | "cheap" | "reasoning";
-export type VerdictRecord = { commit_sha: string; risk_level: RiskLevel; verdict: Verdict; timestamp: string; tier?: AnalysisTier; latency_ms?: number; files?: string[]; summary?: string; cheap_verdict?: unknown; final_verdict?: unknown };
+export type VerdictRecord = { commit_sha: string; risk_level: RiskLevel; verdict: Verdict; timestamp: string; tier?: AnalysisTier; latency_ms?: number; tokens_used?: number; context_nodes?: number; files?: string[]; summary?: string; cheap_verdict?: unknown; final_verdict?: unknown };
 
 export interface RepoState {
   repo_id: string;

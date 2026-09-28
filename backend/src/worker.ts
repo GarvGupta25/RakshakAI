@@ -44,7 +44,7 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
     const record = (risk_level: RiskLevel, verdict: Verdict, tier: AnalysisTier, summary: string, details: Partial<VerdictRecord> = {}): VerdictRecord => ({ commit_sha: job.data.sha, risk_level, verdict, timestamp: new Date().toISOString(), tier, latency_ms: Date.now() - startedAt, files: changedFiles, summary, ...details });
     const scan = await scanDiffInSandbox(diff);
     if (scan.secretsFound) {
-      const recent_verdicts = appendVerdict(priorState.recent_verdicts, record("dangerous", "block", "static", "Potential credential detected in the actual patch."));
+      const recent_verdicts = appendVerdict(priorState.recent_verdicts, record("dangerous", "block", "static", "Potential credential detected in the actual patch.", { tokens_used: 0, context_nodes: changedFiles.length }));
       const rotation = await rotateCompromisedKeyOIDC("credential-pattern-detected", "aws").catch(error => ({ status: "skipped" as const, provider: "aws" as const, reason: String(error) }));
       await state.updateRepoState(job.data.repoId, { known_file_list: knownFiles, recent_verdicts, health_score: deriveHealthScore(recent_verdicts) });
       const incident = { id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: "Potential credential detected in the actual patch.", verdict: { verdict: "block" as const, human_summary: "Potential credential detected in the actual patch.", technical_summary: `${scan.output}\nRotation: ${rotation.status} — ${rotation.reason}`, tokens_used: 0 } };
@@ -55,21 +55,22 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
     const classification = classifyDiff(diff);
     if (classification === "style_only") {
       const correction = await applySafeCorrection(job.data);
-      const recent_verdicts = appendVerdict(priorState.recent_verdicts, record("safe", "allow", "static", correction.reason));
+      const recent_verdicts = appendVerdict(priorState.recent_verdicts, record("safe", "allow", "static", correction.reason, { tokens_used: 0, context_nodes: changedFiles.length }));
       await state.updateRepoState(job.data.repoId, { last_scanned_commit_sha: job.data.sha, known_file_list: knownFiles, recent_verdicts, health_score: deriveHealthScore(recent_verdicts), auto_corrections_applied: priorState.auto_corrections_applied + Number(correction.applied) });
       await setCommitCheck(job.data, "success", correction.reason);
       return { route: "auto_correct", classification, correction };
     }
     const context = await state.getRelevantContext(job.data.repoId, diff);
+    const contextNodes = context.dirty_subgraph?.nodes.length ?? changedFiles.length;
     const cheap = await callCheapModel(diff, context);
     if (cheap.risk_level === "safe") {
-      const recent_verdicts = appendVerdict(priorState.recent_verdicts, record("safe", "allow", "cheap", cheap.reason, { cheap_verdict: cheap }));
+      const recent_verdicts = appendVerdict(priorState.recent_verdicts, record("safe", "allow", "cheap", cheap.reason, { tokens_used: cheap.tokens_used, context_nodes: contextNodes, cheap_verdict: cheap }));
       await state.updateRepoState(job.data.repoId, { last_scanned_commit_sha: job.data.sha, known_file_list: knownFiles, recent_verdicts, health_score: deriveHealthScore(recent_verdicts), ...addTokenUsage(priorState, cheap.tokens_used) });
       await setCommitCheck(job.data, "success", cheap.reason);
       return { route: "allow", classification, cheap };
     }
     const final = await callReasoningModel(diff, context);
-    const recent_verdicts = appendVerdict(priorState.recent_verdicts, record(cheap.risk_level, final.verdict, "reasoning", final.human_summary, { cheap_verdict: cheap, final_verdict: final }));
+    const recent_verdicts = appendVerdict(priorState.recent_verdicts, record(cheap.risk_level, final.verdict, "reasoning", final.human_summary, { tokens_used: cheap.tokens_used + final.tokens_used, context_nodes: contextNodes, cheap_verdict: cheap, final_verdict: final }));
     await state.updateRepoState(job.data.repoId, {
       ...(final.verdict !== "block" ? { last_scanned_commit_sha: job.data.sha } : {}),
       known_file_list: knownFiles, recent_verdicts, health_score: deriveHealthScore(recent_verdicts), ...addTokenUsage(priorState, cheap.tokens_used + final.tokens_used)

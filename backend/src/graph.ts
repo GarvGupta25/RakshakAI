@@ -3,7 +3,7 @@ import type { Redis } from "ioredis";
 import Parser from "tree-sitter";
 import ts from "tree-sitter-typescript";
 
-export interface GraphNode { id: string; type: "file" | "function" | "class"; content: string; parent?: string }
+export interface GraphNode { id: string; type: "file" | "function" | "class"; content: string; parent?: string; dirty?: boolean }
 export interface GraphEdge { from: string; to: string; type: "imports" | "calls" }
 export interface GraphSnapshot { nodes: GraphNode[]; edges: GraphEdge[] }
 const sourceExtension = /\.(?:[cm]?[jt]sx?)$/;
@@ -83,7 +83,7 @@ export function renderMermaid(graph: GraphSnapshot) {
 
 export class DependencyGraph {
   constructor(private readonly redis: Redis, private readonly repoId: string) {}
-  private key(type: "nodes" | "edges" | "reverse" | "dirty" | "member-files") { return `agentguard:repo:${this.repoId}:graph:${type}`; }
+  private key(type: "nodes" | "edges" | "reverse" | "dirty" | "last-dirty" | "member-files") { return `agentguard:repo:${this.repoId}:graph:${type}`; }
   private membersKey(file: string) { return `agentguard:repo:${this.repoId}:graph:members:${file}`; }
   async setNode(node: GraphNode) { await this.redis.hset(this.key("nodes"), node.id, JSON.stringify(node)); }
   async getNode(id: string): Promise<GraphNode | null> { const raw = await this.redis.hget(this.key("nodes"), id); return raw ? JSON.parse(raw) : null; }
@@ -95,8 +95,9 @@ export class DependencyGraph {
   }
   async getEdges(from: string): Promise<GraphEdge[]> { const raw = await this.redis.hget(this.key("edges"), from); return raw ? JSON.parse(raw) : []; }
   async snapshot(): Promise<GraphSnapshot> {
-    const [nodeValues, edgeValues] = await Promise.all([this.redis.hvals(this.key("nodes")), this.redis.hvals(this.key("edges"))]);
-    return { nodes: nodeValues.map(value => JSON.parse(value)), edges: edgeValues.flatMap(value => JSON.parse(value)) };
+    const [nodeValues, edgeValues, dirtyIds] = await Promise.all([this.redis.hvals(this.key("nodes")), this.redis.hvals(this.key("edges")), this.redis.smembers(this.key("last-dirty"))]);
+    const dirty = new Set(dirtyIds);
+    return { nodes: nodeValues.map(value => { const node = JSON.parse(value) as GraphNode; return dirty.has(node.id) ? { ...node, dirty: true } : node; }), edges: edgeValues.flatMap(value => JSON.parse(value)) };
   }
   async markDirty(nodeId: string) {
     const raw = await this.redis.hget(this.key("reverse"), nodeId);
@@ -115,11 +116,14 @@ export class DependencyGraph {
   async getDirtySubgraph(): Promise<GraphSnapshot> {
     const nodes = await this.getDirtyNodes();
     const edges = (await Promise.all(nodes.map(node => this.getEdges(node.id)))).flat();
+    await this.redis.del(this.key("last-dirty"));
+    if (nodes.length) await this.redis.sadd(this.key("last-dirty"), ...nodes.map(node => node.id));
     return { nodes, edges };
   }
   async clearDirty() { await this.redis.del(this.key("dirty")); }
   async updateFiles(changes: Record<string, string | null>) {
     const current = await this.snapshot();
+    current.nodes = current.nodes.map(({ dirty: _dirty, ...node }) => node);
     const sources = Object.fromEntries(current.nodes.filter(node => node.type === "file").map(node => [node.id, node.content]));
     for (const [path, content] of Object.entries(changes)) content === null ? delete sources[path] : sources[path] = content;
     // ponytail: reparse persisted sources in memory; switch to Tree-sitter edit ranges when repositories exceed practical Redis-backed size.
@@ -155,7 +159,7 @@ export class DependencyGraph {
   async buildFullGraph(sources: Record<string, string>) {
     const graph = parseDependencyGraph(Object.fromEntries(Object.entries(sources).filter(([path]) => sourceExtension.test(path))));
     const oldMemberFiles = await this.redis.smembers(this.key("member-files"));
-    await this.redis.del(this.key("nodes"), this.key("edges"), this.key("reverse"), this.key("dirty"), this.key("member-files"), ...oldMemberFiles.map(file => this.membersKey(file)));
+    await this.redis.del(this.key("nodes"), this.key("edges"), this.key("reverse"), this.key("dirty"), this.key("last-dirty"), this.key("member-files"), ...oldMemberFiles.map(file => this.membersKey(file)));
     for (const node of graph.nodes) {
       await this.setNode(node);
       if (node.parent) {
