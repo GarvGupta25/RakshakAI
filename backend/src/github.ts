@@ -42,3 +42,20 @@ export async function postCommitComment(job: { owner: string; repo: string; sha:
   });
   if (!response.ok) throw new Error(`GitHub commit comment creation failed (${response.status})`);
 }
+
+export async function getRepositorySources(job: { owner: string; repo: string; installationId: number; ref?: string }): Promise<Record<string, string>> {
+  const token = await getInstallationToken(job.installationId);
+  const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" };
+  const treeResponse = await fetch(`https://api.github.com/repos/${job.owner}/${job.repo}/git/trees/${encodeURIComponent(job.ref ?? "HEAD")}?recursive=1`, { headers });
+  if (!treeResponse.ok) throw new Error(`GitHub repository tree retrieval failed (${treeResponse.status})`);
+  const tree = await treeResponse.json() as { truncated?: boolean; tree: Array<{ path: string; type: string; url?: string; size?: number }> };
+  if (tree.truncated) throw new Error("GitHub repository tree is too large for full graph initialization");
+  const files = tree.tree.filter(item => item.type === "blob" && item.url && item.size !== undefined && item.size <= 250_000 && /\.(?:[cm]?[jt]sx?)$/.test(item.path));
+  const entries = await Promise.all(files.map(async file => {
+    const response = await fetch(file.url!, { headers });
+    if (!response.ok) throw new Error(`GitHub blob retrieval failed (${response.status})`);
+    const blob = await response.json() as { content: string; encoding: string };
+    return [file.path, blob.encoding === "base64" ? Buffer.from(blob.content.replace(/\n/g, ""), "base64").toString("utf8") : ""] as const;
+  }));
+  return Object.fromEntries(entries);
+}

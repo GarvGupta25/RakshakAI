@@ -1,77 +1,57 @@
-import { Redis } from "ioredis";
+import { posix } from "node:path";
+import type { Redis } from "ioredis";
 
-export interface GraphNode {
-  id: string;      // file path or function name
-  type: "file" | "function" | "class";
-  content: string;
+export interface GraphNode { id: string; type: "file" | "function" | "class"; content: string }
+export interface GraphEdge { from: string; to: string; type: "imports" | "calls" }
+const sourceExtension = /\.(?:[cm]?[jt]sx?)$/;
+const importPattern = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|require\(["']([^"']+)["']\)/g;
+
+function resolveImport(from: string, target: string, files: Set<string>) {
+  if (!target.startsWith(".")) return null;
+  const base = posix.normalize(posix.join(posix.dirname(from), target));
+  return [base, ...[".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js", "/index.jsx"].map(suffix => `${base}${suffix}`)].find(candidate => files.has(candidate)) ?? null;
 }
 
-export interface GraphEdge {
-  from: string;
-  to: string;
-  type: "imports" | "calls";
+export function parseDependencyGraph(sources: Record<string, string>) {
+  const paths = new Set(Object.keys(sources));
+  const nodes: GraphNode[] = Object.entries(sources).map(([id, content]) => ({ id, type: "file", content }));
+  const edges: GraphEdge[] = [];
+  for (const [from, content] of Object.entries(sources)) for (const match of content.matchAll(importPattern)) {
+    const to = resolveImport(from, match[1] ?? match[2], paths);
+    if (to && !edges.some(edge => edge.from === from && edge.to === to)) edges.push({ from, to, type: "imports" });
+  }
+  return { nodes, edges };
 }
 
 export class DependencyGraph {
   constructor(private readonly redis: Redis, private readonly repoId: string) {}
-
-  private key(type: "nodes" | "edges" | "dirty") {
-    return `agentguard:repo:${this.repoId}:graph:${type}`;
-  }
-
-  async setNode(node: GraphNode) {
-    await this.redis.hset(this.key("nodes"), node.id, JSON.stringify(node));
-  }
-
-  async getNode(id: string): Promise<GraphNode | null> {
-    const raw = await this.redis.hget(this.key("nodes"), id);
-    return raw ? JSON.parse(raw) : null;
-  }
-
-  async addEdge(edge: GraphEdge) {
-    // Store edges as adjacency list: "edges" -> hash: from -> list of {to, type}
-    const raw = await this.redis.hget(this.key("edges"), edge.from);
+  private key(type: "nodes" | "edges" | "reverse" | "dirty") { return `agentguard:repo:${this.repoId}:graph:${type}`; }
+  async setNode(node: GraphNode) { await this.redis.hset(this.key("nodes"), node.id, JSON.stringify(node)); }
+  async getNode(id: string): Promise<GraphNode | null> { const raw = await this.redis.hget(this.key("nodes"), id); return raw ? JSON.parse(raw) : null; }
+  async addEdge(edge: GraphEdge) { await this.addIndexedEdge("edges", edge.from, edge); await this.addIndexedEdge("reverse", edge.to, edge); }
+  private async addIndexedEdge(index: "edges" | "reverse", id: string, edge: GraphEdge) {
+    const raw = await this.redis.hget(this.key(index), id);
     const edges: GraphEdge[] = raw ? JSON.parse(raw) : [];
-    if (!edges.some(e => e.to === edge.to && e.type === edge.type)) {
-      edges.push(edge);
-      await this.redis.hset(this.key("edges"), edge.from, JSON.stringify(edges));
-    }
+    if (!edges.some(item => item.from === edge.from && item.to === edge.to && item.type === edge.type)) await this.redis.hset(this.key(index), id, JSON.stringify([...edges, edge]));
   }
-
-  async getEdges(from: string): Promise<GraphEdge[]> {
-    const raw = await this.redis.hget(this.key("edges"), from);
-    return raw ? JSON.parse(raw) : [];
-  }
-
+  async getEdges(from: string): Promise<GraphEdge[]> { const raw = await this.redis.hget(this.key("edges"), from); return raw ? JSON.parse(raw) : []; }
   async markDirty(nodeId: string) {
-    await this.redis.sadd(this.key("dirty"), nodeId);
-    // Propagate one hop: find nodes that depend on this node.
-    // Since we only have forward edges easily queryable, we might need a reverse index,
-    // or just mark the node itself dirty for now in MVP.
+    const raw = await this.redis.hget(this.key("reverse"), nodeId);
+    const dependents: GraphEdge[] = raw ? JSON.parse(raw) : [];
+    await this.redis.sadd(this.key("dirty"), nodeId, ...dependents.map(edge => edge.from));
   }
-
   async getDirtyNodes(): Promise<GraphNode[]> {
-    const dirtyIds = await this.redis.smembers(this.key("dirty"));
-    if (dirtyIds.length === 0) return [];
-    const nodes = await this.redis.hmget(this.key("nodes"), ...dirtyIds);
-    return nodes.filter(n => n !== null).map(n => JSON.parse(n!));
+    const ids = await this.redis.smembers(this.key("dirty"));
+    if (!ids.length) return [];
+    const nodes = await this.redis.hmget(this.key("nodes"), ...ids);
+    return nodes.filter((node): node is string => node !== null).map(node => JSON.parse(node));
   }
-
-  async clearDirty() {
-    await this.redis.del(this.key("dirty"));
-  }
-
-  /**
-   * Phase 2: One-time full parse of the repository.
-   * In a complete production implementation, this would clone the repo,
-   * run Tree-sitter to find all files, functions, classes, and their imports/calls,
-   * and store them as nodes and edges in the graph.
-   */
-  async buildFullGraph(repoUrl: string, token: string) {
-    console.log(`[Phase 2] Building full dependency graph for ${this.repoId}`);
-    // Stub implementation to satisfy Phase 2 architectural requirement
-    await this.setNode({ id: "index.ts", type: "file", content: "// entry point" });
-    await this.setNode({ id: "utils.ts", type: "file", content: "// utilities" });
-    await this.addEdge({ from: "index.ts", to: "utils.ts", type: "imports" });
+  async clearDirty() { await this.redis.del(this.key("dirty")); }
+  async buildFullGraph(sources: Record<string, string>) {
+    const graph = parseDependencyGraph(Object.fromEntries(Object.entries(sources).filter(([path]) => sourceExtension.test(path))));
+    await this.redis.del(this.key("nodes"), this.key("edges"), this.key("reverse"), this.key("dirty"));
+    for (const node of graph.nodes) await this.setNode(node);
+    for (const edge of graph.edges) await this.addEdge(edge);
+    return { files: graph.nodes.length, edges: graph.edges.length };
   }
 }

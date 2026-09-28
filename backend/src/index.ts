@@ -6,9 +6,10 @@ import { enqueuePush } from "./queue.js";
 import "./worker.js";
 import { connection } from "./queue.js";
 import { IncidentStore } from "./incidents.js";
-import { getRecentCommitDiffs } from "./github.js";
+import { getRecentCommitDiffs, getRepositorySources } from "./github.js";
 import { callReasoningModel } from "./llm.js";
 import { RepoStateStore, addTokenUsage } from "./state.js";
+import { DependencyGraph } from "./graph.js";
 
 const app = new Probot({
   appId: config.githubAppId,
@@ -50,7 +51,11 @@ app.on(["installation.created", "installation_repositories.added" as any], async
   for (const repo of repositories) {
     const repoId = String(repo.id);
     await repoStates.updateRepoState(repoId, { known_file_list: [] });
-    context.log.info({ repoId, repoName: repo.name }, "provisioned RepoState for repository");
+    const owner = "owner" in repo ? repo.owner.login : context.payload.installation.account.login;
+    const sources = await getRepositorySources({ owner, repo: repo.name, installationId: context.payload.installation.id, ref: repo.default_branch });
+    const graph = await new DependencyGraph(connection, repoId).buildFullGraph(sources);
+    await repoStates.updateRepoState(repoId, { known_file_list: Object.keys(sources) });
+    context.log.info({ repoId, repoName: repo.name, graph }, "provisioned repository dependency graph");
   }
 });
 
