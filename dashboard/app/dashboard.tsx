@@ -6,7 +6,7 @@ export type DashboardState = {
   health_score: number;
   auto_corrections_applied: number;
   tokens_spent_today: number;
-  recent_verdicts: Array<{ commit_sha: string; risk_level: string; verdict: string; timestamp: string }>;
+  recent_verdicts: Array<{ commit_sha: string; risk_level: string; verdict: string; timestamp: string; tier?: string; latency_ms?: number; files?: string[]; summary?: string; cheap_verdict?: unknown; final_verdict?: unknown }>;
 };
 
 export type DashboardIncident = {
@@ -25,10 +25,10 @@ type View = "Overview" | "Activity" | "Repositories" | "Incidents";
 type IconName = "activity" | "alert" | "arrow" | "bolt" | "check" | "chevron" | "github" | "grid" | "menu" | "repo" | "search" | "settings" | "spark" | "trend" | "x";
 
 const demoEvents = [
-  { sha: "d17a8e2", file: "lib/auth/token.ts", status: "Blocked", summary: "Credential-shaped string detected", time: "2m", tone: "danger" },
-  { sha: "b6d3445", file: "backend/src/worker.ts", status: "Allowed", summary: "Logic change reviewed by reasoning tier", time: "18m", tone: "success" },
-  { sha: "a40fd81", file: "backend/src/state.ts", status: "Corrected", summary: "Formatting normalized automatically", time: "1h", tone: "neutral" },
-  { sha: "38dbe26", file: "backend/src/index.ts", status: "Allowed", summary: "Explain endpoint passed policy checks", time: "3h", tone: "success" }
+  { sha: "d17a8e2", file: "lib/auth/token.ts", status: "Blocked", summary: "Credential-shaped string detected", meta: "static · 184ms", time: "2m", tone: "danger" },
+  { sha: "b6d3445", file: "backend/src/worker.ts", status: "Allowed", summary: "Logic change reviewed by reasoning tier", meta: "reasoning · 2.1s", time: "18m", tone: "success" },
+  { sha: "a40fd81", file: "backend/src/state.ts", status: "Corrected", summary: "Formatting normalized automatically", meta: "static · 742ms", time: "1h", tone: "neutral" },
+  { sha: "38dbe26", file: "backend/src/index.ts", status: "Allowed", summary: "Explain endpoint passed policy checks", meta: "cheap · 860ms", time: "3h", tone: "success" }
 ];
 
 function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
@@ -66,7 +66,7 @@ export default function Dashboard({ initialState, incidents, apiUrl, installUrl 
   const health = initialState?.health_score ?? 92;
   const corrections = initialState?.auto_corrections_applied ?? 24;
   const tokenSpend = initialState ? `${(initialState.tokens_spent_today / 1000).toFixed(1)}k` : "18.4k";
-  const events = useMemo(() => initialState?.recent_verdicts.length ? initialState.recent_verdicts.slice(-4).reverse().map((item, index) => ({ sha: item.commit_sha.slice(0, 7), file: "Repository change", status: item.verdict === "block" ? "Blocked" : item.verdict === "allow_with_flag" ? "Flagged" : "Allowed", summary: `${item.risk_level.replace("_", " ")} risk · structured verdict`, time: index ? `${index + 1}h` : "now", tone: item.verdict === "block" ? "danger" : item.verdict === "allow" ? "success" : "neutral" })) : demoEvents, [initialState]);
+  const events = useMemo(() => initialState?.recent_verdicts.length ? initialState.recent_verdicts.slice(-20).reverse().map(item => ({ sha: item.commit_sha.slice(0, 7), file: item.files?.[0] ?? "Repository change", status: item.verdict === "block" ? "Blocked" : item.verdict === "allow_with_flag" ? "Flagged" : "Allowed", summary: item.summary ?? `${item.risk_level.replace("_", " ")} risk`, meta: `${item.tier ?? "legacy"} · ${item.latency_ms === undefined ? "latency unavailable" : `${item.latency_ms}ms`}`, details: JSON.stringify({ cheap: item.cheap_verdict, final: item.final_verdict }, null, 2), time: new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), tone: item.verdict === "block" ? "danger" : item.verdict === "allow" ? "success" : "neutral" })) : demoEvents, [initialState]);
   const incidentCount = incidentRows.filter(incident => incident.status !== "resolved").length;
   async function resolveIncident(incident: DashboardIncident) {
     setResolving(incident.job.sha);
@@ -107,7 +107,7 @@ export default function Dashboard({ initialState, incidents, apiUrl, installUrl 
   </div>;
 }
 
-type EventItem = typeof demoEvents[number];
+type EventItem = { sha: string; file: string; status: string; summary: string; meta: string; time: string; tone: string; details?: string };
 
 function Overview({ health, corrections, tokenSpend, incidentCount, events, onNavigate }: { health: number; corrections: number; tokenSpend: string; incidentCount: number; events: EventItem[]; onNavigate: (view: View) => void }) {
   return <><section className="metrics-grid" aria-label="Key metrics"><Metric label="Repository health" value={String(health)} detail="Healthy posture" change="+3.2%" tone="health-value" /><Metric label="Incidents caught" value={String(incidentCount).padStart(2, "0")} detail={incidentCount ? `${incidentCount} require attention` : "No open incidents"} /><Metric label="Tokens used today" value={tokenSpend} detail="Total model usage" change="−12.4%" /><Metric label="Auto-corrections" value={String(corrections)} detail="Manual fixes avoided" change="+8 this week" /></section>
@@ -117,10 +117,10 @@ function Overview({ health, corrections, tokenSpend, incidentCount, events, onNa
 }
 
 function PanelHead({ title, subtitle, children }: { title: string; subtitle: string; children?: ReactNode }) { return <div className="panel-head"><div><h2>{title}</h2><p>{subtitle}</p></div>{children}</div>; }
-function EventList({ events }: { events: EventItem[] }) { return <div className="event-list">{events.map(event => <article className="event-row" key={event.sha}><div className={`event-icon ${event.tone}`}>{event.tone === "danger" ? <Icon name="alert" size={14} /> : <Icon name="check" size={14} />}</div><div className="event-copy"><div><code>{event.sha}</code><span>{event.file}</span></div><p>{event.summary}</p></div><span className={`decision ${event.tone}`}>{event.status}</span><time>{event.time}</time><button aria-label={`Open commit ${event.sha}`}><Icon name="chevron" size={14} /></button></article>)}</div>; }
+function EventList({ events, technical = false }: { events: EventItem[]; technical?: boolean }) { return <div className="event-list">{events.map(event => <article className={`event-row ${technical ? "technical" : ""}`} key={event.sha}><div className={`event-icon ${event.tone}`}>{event.tone === "danger" ? <Icon name="alert" size={14} /> : <Icon name="check" size={14} />}</div><div className="event-copy"><div><code>{event.sha}</code><span>{event.file}</span></div><p>{event.summary}</p><small>{event.meta}</small>{technical && event.details && <details className="activity-details"><summary>Structured verdict</summary><pre>{event.details}</pre></details>}</div><span className={`decision ${event.tone}`}>{event.status}</span><time>{event.time}</time><button aria-label={`Open commit ${event.sha}`}><Icon name="chevron" size={14} /></button></article>)}</div>; }
 
 function CollectionView({ view, events, health, incidents, apiUrl, installUrl, resolving, onResolve }: { view: Exclude<View, "Overview">; events: EventItem[]; health: number; incidents: DashboardIncident[]; apiUrl: string; installUrl: string; resolving: string | null; onResolve: (incident: DashboardIncident) => void }) {
   if (view === "Repositories") return <section className="panel collection-panel"><PanelHead title="Protected repositories" subtitle="1 active GitHub App installation"><a className="secondary-button" href={installUrl}>+ Add repository</a></PanelHead><div className="collection-empty"><div className="repo-symbol large"><Icon name="repo" /></div><h2>RakshakAI</h2><p>GarvGupta25 · main branch</p><div className="collection-stats"><span><b>{health}</b>Health</span><span><b>24</b>Corrections</span><span><b>2m</b>Last scan</span></div></div></section>;
   if (view === "Incidents") { const openCount = incidents.filter(incident => incident.status !== "resolved").length; return <section className="panel collection-panel"><PanelHead title="Incident queue" subtitle="Issues requiring a human decision"><span className="open-count">{openCount} open</span></PanelHead>{incidents.length ? incidents.map(incident => <article className={`incident-card ${incident.status === "resolved" ? "resolved" : ""}`} key={incident.id}><div className={`event-icon ${incident.status === "resolved" ? "success" : "danger"}`}>{incident.status === "resolved" ? <Icon name="check" size={16} /> : <Icon name="alert" size={16} />}</div><div><div className="incident-title"><strong>{incident.reason}</strong><span>{incident.status === "resolved" ? "Resolved" : "High severity"}</span></div><p>AgentGuard blocked this commit after inspecting its actual patch.</p><div className="incident-meta"><code>{incident.job.sha.slice(0, 7)}</code><span>{new Date(incident.createdAt).toLocaleString()}</span><span>{incident.job.ref.replace("refs/heads/", "")}</span><span className={`notification-state ${incident.notification?.status ?? "skipped"}`}>Discord {incident.notification?.status ?? "not configured"}</span></div><details className="technical-details"><summary>Technical details</summary><strong>Structured verdict</strong><pre>{JSON.stringify(incident.verdict ?? { verdict: "block", reason: incident.reason }, null, 2)}</pre><strong>Actual diff</strong><pre>{incident.diff}</pre></details></div><div className="incident-actions"><a className="primary-button" href={`${apiUrl}/explain?repo=${encodeURIComponent(incident.job.repoId)}&sha=${encodeURIComponent(incident.job.sha)}`}>Explain</a>{incident.status !== "resolved" && <button className="secondary-button" disabled={resolving === incident.job.sha} onClick={() => onResolve(incident)}>{resolving === incident.job.sha ? "Resolving…" : "Mark resolved"}</button>}</div></article>) : <div className="incident-empty"><div className="event-icon success"><Icon name="check" /></div><h2>No incidents</h2><p>Blocked changes and detected secrets will appear here.</p></div>}</section>; }
-  return <section className="panel collection-panel"><PanelHead title="All activity" subtitle="Decisions from every analysis tier"><button className="secondary-button">Filter</button></PanelHead><EventList events={events} /></section>;
+  return <section className="panel collection-panel"><PanelHead title="All activity" subtitle="Decisions from every analysis tier"><button className="secondary-button">Filter</button></PanelHead><EventList events={events} technical /></section>;
 }
