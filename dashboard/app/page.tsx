@@ -14,5 +14,6 @@ async function loadRepoState(): Promise<DashboardState | null> {
 }
 
 export default async function Page() {
-  return <Dashboard initialState={await loadRepoState()} />;
+  const api = process.env.NEXT_PUBLIC_AGENTGUARD_API_URL ?? process.env.AGENTGUARD_API_URL ?? "http://localhost:3000";
+  return <Dashboard initialState={await loadRepoState()} installUrl={`${api}/install`} />;
 }

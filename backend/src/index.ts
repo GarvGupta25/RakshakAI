@@ -26,15 +26,31 @@ app.on("push", async (context) => {
   });
 });
 
+app.on(["pull_request.opened", "pull_request.reopened", "pull_request.synchronize"], async (context) => {
+  const { repository, pull_request: pullRequest, installation } = context.payload;
+  if (!installation) return;
+  await enqueuePush({
+    repoId: String(repository.id), owner: repository.owner.login, repo: repository.name,
+    sha: pullRequest.head.sha, installationId: installation.id, ref: `refs/heads/${pullRequest.head.ref}`
+  });
+});
+
+app.on("check_run.rerequested", async (context) => {
+  const { repository, check_run: checkRun, installation } = context.payload;
+  if (!installation) return;
+  await enqueuePush({
+    repoId: String(repository.id), owner: repository.owner.login, repo: repository.name,
+    sha: checkRun.head_sha, installationId: installation.id,
+    ref: `refs/heads/${checkRun.check_suite?.head_branch ?? repository.default_branch}`
+  }, true);
+});
+
 app.on(["installation.created", "installation_repositories.added" as any], async (context) => {
   const repositories = "repositories" in context.payload ? context.payload.repositories : (context.payload as any).repositories_added || [];
   for (const repo of repositories) {
     const repoId = String(repo.id);
     await repoStates.updateRepoState(repoId, { known_file_list: [] });
-    // Phase 2: Build graph
-    const graph = new (await import("./graph.js")).DependencyGraph(connection, repoId);
-    await graph.buildFullGraph(repo.full_name, "token_stub");
-    context.log.info({ repoId, repoName: repo.name }, "provisioned RepoState and built graph for repository");
+    context.log.info({ repoId, repoName: repo.name }, "provisioned RepoState for repository");
   }
 });
 
@@ -46,6 +62,13 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ 
 createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
   if (url.pathname === "/health") { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ ok: true })); return; }
+  if (url.pathname === "/install" && request.method === "GET") {
+    if (!config.githubAppSlug) { response.writeHead(503, { "content-type": "text/plain" }); response.end("GITHUB_APP_SLUG is not configured"); return; }
+    response.writeHead(302, { location: `https://github.com/apps/${encodeURIComponent(config.githubAppSlug)}/installations/new` }); response.end(); return;
+  }
+  if (url.pathname === "/setup" && request.method === "GET") {
+    response.writeHead(302, { location: config.dashboardUrl }); response.end(); return;
+  }
   const stateMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)$/);
   if (stateMatch && request.method === "GET") {
     response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(await repoStates.getRepoState(stateMatch[1]))); return;

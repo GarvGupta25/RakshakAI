@@ -5,9 +5,11 @@ export const config = {
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
   githubAppId: process.env.GITHUB_APP_ID,
+  githubAppSlug: process.env.GITHUB_APP_SLUG,
   githubPrivateKey: process.env.GITHUB_PRIVATE_KEY?.replace(/\\n/g, "\n"),
   groqApiKey: process.env.GROQ_API_KEY,
   geminiApiKey: process.env.GEMINI_API_KEY,
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL,
-  enableBranchRollback: process.env.ENABLE_BRANCH_ROLLBACK === "true"
+  enableBranchRollback: process.env.ENABLE_BRANCH_ROLLBACK === "true",
+  dashboardUrl: process.env.DASHBOARD_URL ?? "http://localhost:3001"
 };

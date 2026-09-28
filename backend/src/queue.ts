@@ -14,9 +14,12 @@ export interface PushJob {
 export const connection = new Redis(config.redisUrl, { maxRetriesPerRequest: null });
 export const pushQueue = new Queue<PushJob>("push-analysis", { connection });
 
-export async function enqueuePush(job: PushJob) {
+export const analysisJobId = (job: Pick<PushJob, "repoId" | "sha">, rerunNonce?: number) =>
+  `${job.repoId}:${job.sha}${rerunNonce === undefined ? "" : `:${rerunNonce}`}`;
+
+export async function enqueuePush(job: PushJob, rerun = false) {
   return pushQueue.add("analyze-push", job, {
-    jobId: `${job.repoId}:${job.sha}`,
+    jobId: analysisJobId(job, rerun ? Date.now() : undefined),
     removeOnComplete: 1000,
     removeOnFail: 1000
   });
