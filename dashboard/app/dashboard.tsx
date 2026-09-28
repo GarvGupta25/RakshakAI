@@ -20,9 +20,10 @@ export type DashboardIncident = {
   resolvedAt?: string;
   notification?: { channel: "discord"; status: "sent" | "skipped" | "failed"; attemptedAt: string; error?: string };
 };
+export type DashboardGraph = { nodes: Array<{ id: string; type: "file" | "function" | "class"; parent?: string }>; edges: Array<{ from: string; to: string; type: "imports" | "calls" }> };
 
-type View = "Overview" | "Activity" | "Repositories" | "Incidents";
-type IconName = "activity" | "alert" | "arrow" | "bolt" | "check" | "chevron" | "github" | "grid" | "menu" | "repo" | "search" | "settings" | "spark" | "trend" | "x";
+type View = "Overview" | "Activity" | "Repositories" | "Incidents" | "Graph";
+type IconName = "activity" | "alert" | "arrow" | "bolt" | "check" | "chevron" | "github" | "graph" | "grid" | "menu" | "repo" | "search" | "settings" | "spark" | "trend" | "x";
 
 const demoEvents = [
   { sha: "d17a8e2", file: "lib/auth/token.ts", status: "Blocked", summary: "Credential-shaped string detected", meta: "static · 184ms", time: "2m", tone: "danger" },
@@ -40,6 +41,7 @@ function Icon({ name, size = 16 }: { name: IconName; size?: number }) {
     check: <path d="m5 12 4 4L19 6" />,
     chevron: <path d="m9 18 6-6-6-6" />,
     github: <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7.4A5.8 5.8 0 0 0 19.2 3 5.4 5.4 0 0 0 19 0s-1.2-.4-4 1.5a13.7 13.7 0 0 0-7 0C5.2-.4 4 0 4 0a5.4 5.4 0 0 0-.2 3A5.8 5.8 0 0 0 2.2 7c0 5.8 3.5 7 6.8 7.4A4.8 4.8 0 0 0 8 18v4" />,
+    graph: <><circle cx="6" cy="6" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="10" cy="18" r="2"/><path d="m8 7 8 1M7 8l2 8m8-6-6 6"/></>,
     grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     repo: <><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z" /></>,
@@ -56,7 +58,7 @@ function Metric({ label, value, detail, change, tone }: { label: string; value: 
   return <article className="metric-card"><div className="metric-label">{label}<button className="quiet-button" aria-label={`More about ${label}`}>···</button></div><div className={`metric-value ${tone ?? ""}`}>{value}</div><div className="metric-detail">{change && <span className="metric-change"><Icon name="trend" size={13} />{change}</span>}{detail}</div></article>;
 }
 
-export default function Dashboard({ initialState, incidents, apiUrl, installUrl }: { initialState: DashboardState | null; incidents: DashboardIncident[]; apiUrl: string; installUrl: string }) {
+export default function Dashboard({ initialState, incidents, graph, apiUrl, installUrl }: { initialState: DashboardState | null; incidents: DashboardIncident[]; graph: DashboardGraph; apiUrl: string; installUrl: string }) {
   const [view, setView] = useState<View>("Overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -83,7 +85,7 @@ export default function Dashboard({ initialState, incidents, apiUrl, installUrl 
       setResolving(null);
     }
   }
-  const nav: Array<{ name: View; icon: IconName; count?: number }> = [{ name: "Overview", icon: "grid" }, { name: "Activity", icon: "activity" }, { name: "Repositories", icon: "repo" }, { name: "Incidents", icon: "alert", count: incidentCount }];
+  const nav: Array<{ name: View; icon: IconName; count?: number }> = [{ name: "Overview", icon: "grid" }, { name: "Activity", icon: "activity" }, { name: "Graph", icon: "graph" }, { name: "Repositories", icon: "repo" }, { name: "Incidents", icon: "alert", count: incidentCount }];
 
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to content</a>
@@ -100,7 +102,7 @@ export default function Dashboard({ initialState, incidents, apiUrl, installUrl 
       <header className="topbar"><button className="menu-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Icon name="menu" /></button><div className="breadcrumb"><span>Workspace</span><Icon name="chevron" size={12} /><strong>{view}</strong></div><div className="top-actions"><button className="search-button" onClick={() => setSearchOpen(true)}><Icon name="search" /><span>Search</span><kbd>⌘ K</kbd></button><a className="icon-button" href="https://github.com/GarvGupta25/RakshakAI" target="_blank" rel="noreferrer" aria-label="Open GitHub"><Icon name="github" /></a><a className="primary-button" href={installUrl}><span>+</span> Install repository</a></div></header>
       <div className="page"><div className="sr-only" aria-live="polite">{statusMessage}</div><section className="page-heading"><div><p className="eyebrow">Security operations</p><h1>{view}</h1><p>{view === "Overview" ? "One view of repository health, decisions, and agent activity." : `Review ${view.toLowerCase()} across your protected repositories.`}</p></div><div className="live-status"><span />Live</div></section>
         <section className="repo-strip"><div className="repo-symbol"><Icon name="repo" /></div><div className="repo-copy"><strong>GarvGupta25 / RakshakAI</strong><span><i /> Monitoring <b>main</b><span className="separator">·</span>Last scan 2 min ago</span></div><div className="repo-health"><span>Health</span><strong>{health}<small>/100</small></strong></div><a href="https://github.com/GarvGupta25/RakshakAI" target="_blank" rel="noreferrer">View repository <Icon name="arrow" size={14} /></a></section>
-        {view === "Overview" ? <Overview health={health} corrections={corrections} tokenSpend={tokenSpend} incidentCount={incidentCount} events={events} onNavigate={setView} /> : <CollectionView view={view} events={events} health={health} incidents={incidentRows} apiUrl={apiUrl} installUrl={installUrl} resolving={resolving} onResolve={resolveIncident} />}
+        {view === "Overview" ? <Overview health={health} corrections={corrections} tokenSpend={tokenSpend} incidentCount={incidentCount} events={events} onNavigate={setView} /> : view === "Graph" ? <GraphView graph={graph} verdicts={initialState?.recent_verdicts ?? []} /> : <CollectionView view={view} events={events} health={health} incidents={incidentRows} apiUrl={apiUrl} installUrl={installUrl} resolving={resolving} onResolve={resolveIncident} />}
       </div>
     </main>
     {searchOpen && <div className="dialog-layer" role="presentation" onMouseDown={() => setSearchOpen(false)}><section className="search-dialog" role="dialog" aria-modal="true" aria-label="Search AgentGuard" onMouseDown={event => event.stopPropagation()}><div className="search-input"><Icon name="search" /><input autoFocus aria-label="Search" placeholder="Search repositories, commits, incidents…"/><button onClick={() => setSearchOpen(false)} aria-label="Close search"><kbd>Esc</kbd></button></div><div className="search-hint"><span>Quick access</span><button onClick={() => { setView("Incidents"); setSearchOpen(false); }}><Icon name="alert" />View open incidents<kbd>↵</kbd></button><button onClick={() => { setView("Activity"); setSearchOpen(false); }}><Icon name="activity" />Review recent activity<kbd>↵</kbd></button></div></section></div>}
@@ -108,6 +110,17 @@ export default function Dashboard({ initialState, incidents, apiUrl, installUrl 
 }
 
 type EventItem = { sha: string; file: string; status: string; summary: string; meta: string; time: string; tone: string; details?: string };
+
+function GraphView({ graph, verdicts }: { graph: DashboardGraph; verdicts: DashboardState["recent_verdicts"] }) {
+  const [selected, setSelected] = useState<string | null>(null);
+  const nodes = graph.nodes.slice(0, 36);
+  const visible = new Set(nodes.map(node => node.id));
+  const edges = graph.edges.filter(edge => visible.has(edge.from) && visible.has(edge.to));
+  const selectedNode = nodes.find(node => node.id === selected);
+  const connected = selected ? edges.filter(edge => edge.from === selected || edge.to === selected) : [];
+  const recent = verdicts.slice(-12);
+  return <div className="phase-two-grid"><section className="panel graph-panel"><PanelHead title="Dependency graph" subtitle={`${graph.nodes.length} nodes · ${graph.edges.length} edges`}><span className="graph-legend"><i /> Live graph</span></PanelHead>{nodes.length ? <div className="graph-canvas" role="group" aria-label="Repository dependency graph">{nodes.map(node => <button key={node.id} className={`graph-node ${node.type} ${selected === node.id ? "selected" : ""}`} onClick={() => setSelected(node.id)} aria-pressed={selected === node.id}><Icon name={node.type === "file" ? "repo" : node.type === "class" ? "grid" : "bolt"} size={13}/><span>{node.id.split("/").at(-1)}</span><small>{node.type}</small></button>)}</div> : <div className="graph-empty"><Icon name="graph" size={24}/><strong>Graph initializes on installation</strong><span>Reinstall or add a repository to start the first full parse.</span></div>}</section><aside className="graph-side"><section className="panel graph-inspector"><PanelHead title="Inspector" subtitle="Select a node to trace impact" />{selectedNode ? <div className="inspector-body"><span className={`node-type ${selectedNode.type}`}>{selectedNode.type}</span><code>{selectedNode.id}</code><strong>{connected.length} direct connections</strong>{connected.map(edge => <div className="edge-row" key={`${edge.from}-${edge.to}`}><span>{edge.type}</span><code>{edge.from === selected ? edge.to : edge.from}</code></div>)}</div> : <p className="inspector-empty">Choose a graph node to inspect its callers and dependencies.</p>}</section><section className="panel efficiency-panel"><PanelHead title="Context efficiency" subtitle="Model scope per recent push" /><div className="efficiency-chart" aria-label="Analysis tiers for recent pushes">{recent.length ? recent.map((item, index) => <div key={`${item.commit_sha}-${index}`} className={`efficiency-bar ${item.tier ?? "legacy"}`} style={{ height: item.tier === "reasoning" ? "88%" : item.tier === "cheap" ? "54%" : "24%" }} title={`${item.commit_sha.slice(0, 7)}: ${item.tier ?? "legacy"}`} />) : <span>No push history yet</span>}</div><div className="chart-caption"><span>Older</span><strong>{recent.filter(item => item.tier !== "reasoning").length}/{recent.length || 0} avoided reasoning</strong><span>Latest</span></div></section></aside></div>;
+}
 
 function Overview({ health, corrections, tokenSpend, incidentCount, events, onNavigate }: { health: number; corrections: number; tokenSpend: string; incidentCount: number; events: EventItem[]; onNavigate: (view: View) => void }) {
   return <><section className="metrics-grid" aria-label="Key metrics"><Metric label="Repository health" value={String(health)} detail="Healthy posture" change="+3.2%" tone="health-value" /><Metric label="Incidents caught" value={String(incidentCount).padStart(2, "0")} detail={incidentCount ? `${incidentCount} require attention` : "No open incidents"} /><Metric label="Tokens used today" value={tokenSpend} detail="Total model usage" change="−12.4%" /><Metric label="Auto-corrections" value={String(corrections)} detail="Manual fixes avoided" change="+8 this week" /></section>

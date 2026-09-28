@@ -1,4 +1,4 @@
-import Dashboard, { type DashboardIncident, type DashboardState } from "./dashboard";
+import Dashboard, { type DashboardGraph, type DashboardIncident, type DashboardState } from "./dashboard";
 
 const apiUrl = () => process.env.AGENTGUARD_API_URL ?? "http://localhost:3000";
 
@@ -25,8 +25,17 @@ async function loadIncidents(): Promise<DashboardIncident[]> {
   }
 }
 
+async function loadGraph(): Promise<DashboardGraph> {
+  const repoId = process.env.NEXT_PUBLIC_DEFAULT_REPO_ID;
+  if (!repoId) return { nodes: [], edges: [] };
+  try {
+    const response = await fetch(`${apiUrl()}/api/repositories/${encodeURIComponent(repoId)}/graph`, { cache: "no-store" });
+    return response.ok ? await response.json() as DashboardGraph : { nodes: [], edges: [] };
+  } catch { return { nodes: [], edges: [] }; }
+}
+
 export default async function Page() {
   const api = process.env.NEXT_PUBLIC_AGENTGUARD_API_URL ?? process.env.AGENTGUARD_API_URL ?? "http://localhost:3000";
-  const [state, incidents] = await Promise.all([loadRepoState(), loadIncidents()]);
-  return <Dashboard initialState={state} incidents={incidents} apiUrl={api} installUrl={`${api}/install`} />;
+  const [state, incidents, graph] = await Promise.all([loadRepoState(), loadIncidents(), loadGraph()]);
+  return <Dashboard initialState={state} incidents={incidents} graph={graph} apiUrl={api} installUrl={`${api}/install`} />;
 }
