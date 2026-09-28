@@ -74,5 +74,5 @@ export function addTokenUsage(state: Pick<RepoState, "tokens_spent_today" | "tok
 }
 
 export function filesFromDiff(diff: string): string[] {
-  return [...new Set([...diff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map(match => match[1]).filter(file => file !== "/dev/null"))];
+  return [...new Set([...diff.matchAll(/^(?:\+\+\+ b\/|--- a\/)(.+)$/gm)].map(match => match[1]).filter(file => file !== "/dev/null"))];
 }

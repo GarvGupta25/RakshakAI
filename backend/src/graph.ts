@@ -118,6 +118,40 @@ export class DependencyGraph {
     return { nodes, edges };
   }
   async clearDirty() { await this.redis.del(this.key("dirty")); }
+  async updateFiles(changes: Record<string, string | null>) {
+    const current = await this.snapshot();
+    const sources = Object.fromEntries(current.nodes.filter(node => node.type === "file").map(node => [node.id, node.content]));
+    for (const [path, content] of Object.entries(changes)) content === null ? delete sources[path] : sources[path] = content;
+    // ponytail: reparse persisted sources in memory; switch to Tree-sitter edit ranges when repositories exceed practical Redis-backed size.
+    const next = parseDependencyGraph(sources);
+    const oldNodes = new Map(current.nodes.map(node => [node.id, node]));
+    const newNodes = new Map(next.nodes.map(node => [node.id, node]));
+    const removedNodes = [...oldNodes.keys()].filter(id => !newNodes.has(id));
+    if (removedNodes.length) await this.redis.hdel(this.key("nodes"), ...removedNodes);
+    for (const [id, node] of newNodes) if (JSON.stringify(oldNodes.get(id)) !== JSON.stringify(node)) await this.setNode(node);
+
+    const edgeId = (edge: GraphEdge) => `${edge.from}\0${edge.to}\0${edge.type}`;
+    const oldEdgeIds = new Set(current.edges.map(edgeId));
+    const newEdgeIds = new Set(next.edges.map(edgeId));
+    const changedEdges = [...current.edges.filter(edge => !newEdgeIds.has(edgeId(edge))), ...next.edges.filter(edge => !oldEdgeIds.has(edgeId(edge)))];
+    const affectedFrom = new Set(changedEdges.map(edge => edge.from));
+    const affectedTo = new Set(changedEdges.map(edge => edge.to));
+    for (const from of affectedFrom) {
+      const edges = next.edges.filter(edge => edge.from === from);
+      edges.length ? await this.redis.hset(this.key("edges"), from, JSON.stringify(edges)) : await this.redis.hdel(this.key("edges"), from);
+    }
+    for (const to of affectedTo) {
+      const edges = next.edges.filter(edge => edge.to === to);
+      edges.length ? await this.redis.hset(this.key("reverse"), to, JSON.stringify(edges)) : await this.redis.hdel(this.key("reverse"), to);
+    }
+    for (const path of Object.keys(changes)) {
+      await this.redis.del(this.membersKey(path));
+      const members = next.nodes.filter(node => node.parent === path).map(node => node.id);
+      if (members.length) { await this.redis.sadd(this.membersKey(path), ...members); await this.redis.sadd(this.key("member-files"), path); }
+      else await this.redis.srem(this.key("member-files"), path);
+    }
+    return { filesChanged: Object.keys(changes).length, nodesChanged: removedNodes.length + [...newNodes].filter(([id, node]) => JSON.stringify(oldNodes.get(id)) !== JSON.stringify(node)).length, edgesChanged: changedEdges.length };
+  }
   async buildFullGraph(sources: Record<string, string>) {
     const graph = parseDependencyGraph(Object.fromEntries(Object.entries(sources).filter(([path]) => sourceExtension.test(path))));
     const oldMemberFiles = await this.redis.smembers(this.key("member-files"));

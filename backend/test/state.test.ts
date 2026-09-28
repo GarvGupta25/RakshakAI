@@ -7,6 +7,7 @@ describe("RepoState", () => {
   });
   it("extracts changed paths and penalizes blocked verdicts", () => {
     expect(filesFromDiff("+++ b/src/app.ts\n+++ b/src/app.ts\n+++ b/README.md")).toEqual(["src/app.ts", "README.md"]);
+    expect(filesFromDiff("--- a/src/removed.ts\n+++ /dev/null")).toEqual(["src/removed.ts"]);
     expect(deriveHealthScore([{ commit_sha: "a", risk_level: "dangerous", verdict: "block", timestamp: "now" }])).toBe(80);
   });
   it("keeps a bounded verdict history and resets daily token usage", () => {

@@ -12,4 +12,14 @@ describe("dependency graph parsing", () => {
     expect(diagram).toContain("-->|imports|");
     expect(diagram).toContain("src/guard.ts");
   });
+  it("replaces only graph data affected by changed sources", async () => {
+    const hashes = new Map<string, Map<string, string>>(); const sets = new Map<string, Set<string>>();
+    const redis = { hset: async (key: string, field: string, value: string) => { const hash = hashes.get(key) ?? new Map(); hash.set(field, value); hashes.set(key, hash); }, hget: async (key: string, field: string) => hashes.get(key)?.get(field) ?? null, hvals: async (key: string) => [...hashes.get(key)?.values() ?? []], hdel: async (key: string, ...fields: string[]) => fields.forEach(field => hashes.get(key)?.delete(field)), sadd: async (key: string, ...values: string[]) => { const set = sets.get(key) ?? new Set(); values.forEach(value => set.add(value)); sets.set(key, set); }, srem: async (key: string, ...values: string[]) => values.forEach(value => sets.get(key)?.delete(value)), smembers: async (key: string) => [...sets.get(key) ?? []], del: async (...keys: string[]) => keys.forEach(key => { hashes.delete(key); sets.delete(key); }), hmget: async (key: string, ...fields: string[]) => fields.map(field => hashes.get(key)?.get(field) ?? null) };
+    const graph = new (await import("../src/graph.js")).DependencyGraph(redis as never, "repo");
+    await graph.buildFullGraph({ "src/a.ts": "export const a = () => 1", "src/b.ts": 'import { a } from "./a"; export const b = () => a()' });
+    const result = await graph.updateFiles({ "src/a.ts": "export const a = () => 2" });
+    expect(result).toMatchObject({ filesChanged: 1, nodesChanged: 2, edgesChanged: 0 });
+    expect((await graph.getNode("src/b.ts"))?.content).toContain("import");
+    expect((await graph.getNode("src/a.ts#function:a"))?.content).toContain("2");
+  });
 });

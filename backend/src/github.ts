@@ -59,3 +59,17 @@ export async function getRepositorySources(job: { owner: string; repo: string; i
   }));
   return Object.fromEntries(entries);
 }
+
+export async function getChangedSources(job: { owner: string; repo: string; sha: string; installationId: number }, paths: string[]): Promise<Record<string, string | null>> {
+  const token = await getInstallationToken(job.installationId);
+  const headers = { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" };
+  const entries = await Promise.all(paths.filter(path => /\.(?:[cm]?[jt]sx?)$/.test(path)).map(async path => {
+    const response = await fetch(`https://api.github.com/repos/${job.owner}/${job.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(job.sha)}`, { headers });
+    if (response.status === 404) return [path, null] as const;
+    if (!response.ok) throw new Error(`GitHub changed source retrieval failed (${response.status})`);
+    const file = await response.json() as { content: string; encoding: string };
+    if (file.encoding !== "base64") throw new Error(`Unsupported GitHub content encoding for ${path}`);
+    return [path, Buffer.from(file.content.replace(/\n/g, ""), "base64").toString("utf8")] as const;
+  }));
+  return Object.fromEntries(entries);
+}
