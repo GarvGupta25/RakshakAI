@@ -78,6 +78,10 @@ createServer(async (request, response) => {
     const incident = await incidents.get(incidentMatch[1], incidentMatch[2]);
     response.writeHead(incident ? 200 : 404, { "content-type": "application/json" }); response.end(JSON.stringify(incident ?? { error: "Incident not found" })); return;
   }
+  if (incidentMatch && request.method === "POST") {
+    const incident = await incidents.resolve(incidentMatch[1], incidentMatch[2]);
+    response.writeHead(incident ? 200 : 404, { "content-type": "application/json" }); response.end(JSON.stringify(incident ?? { error: "Incident not found" })); return;
+  }
   const stateMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)$/);
   if (stateMatch && request.method === "GET") {
     response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(await repoStates.getRepoState(stateMatch[1]))); return;

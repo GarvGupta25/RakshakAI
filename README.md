@@ -27,4 +27,10 @@ Create a GitHub App with repository permissions for Contents (read/write), Check
 
 Set `PUBLIC_URL` to the externally reachable backend origin so Discord alerts and GitHub comments link to the rendered explanation page. Set `DASHBOARD_URL` to the deployed dashboard origin for the post-install redirect.
 
+## Current scope decisions
+
+- The dashboard reports total token usage only; provider-tier token breakdowns are intentionally out of scope.
+- Incident resolution and notification delivery history are part of Phase 1.
+- Dashboard API authentication and authorization are deferred until the core local end-to-end flow is complete.
+
 `ENABLE_BRANCH_ROLLBACK` is deliberately disabled by default. When enabled, AgentGuard only resets an unprotected branch to its stored last-known-safe SHA. Credential rotation remains provider-specific and must be configured with an OIDC role before production use.

@@ -8,8 +8,8 @@ import { RepoStateStore, addTokenUsage, appendVerdict, deriveHealthScore, filesF
 import { callCheapModel, callReasoningModel } from "./llm.js";
 import { config } from "./config.js";
 import { setCommitCheck, postCommitComment } from "./github.js";
-import { DiscordNotifier } from "./notifications.js";
-import { IncidentStore } from "./incidents.js";
+import { DiscordNotifier, type SecurityNotification } from "./notifications.js";
+import { IncidentStore, type Incident } from "./incidents.js";
 import { applySafeCorrection } from "./corrections.js";
 import { remediateBlockedChange } from "./remediation.js";
 import { rotateCompromisedKeyOIDC } from "./oidc.js";
@@ -19,6 +19,17 @@ const locks = new RepoLock(connection);
 const state = new RepoStateStore(connection);
 const notifier = new DiscordNotifier();
 const incidents = new IncidentStore(connection);
+
+async function saveAndNotify(incident: Incident, notification: SecurityNotification) {
+  await incidents.save(incident);
+  try {
+    const status = await notifier.sendNotification(notification);
+    await incidents.recordNotification(incident.job.repoId, incident.job.sha, { channel: "discord", status, attemptedAt: new Date().toISOString() });
+  } catch (error) {
+    await incidents.recordNotification(incident.job.repoId, incident.job.sha, { channel: "discord", status: "failed", attemptedAt: new Date().toISOString(), error: String(error) });
+    console.error("Incident notification failed", error);
+  }
+}
 
 export const worker = new Worker<PushJob>("push-analysis", async job => {
   const release = await locks.acquire(job.data.repoId);
@@ -32,9 +43,9 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
       // Attempt OIDC-based key rotation before rollback
       await rotateCompromisedKeyOIDC("detected-secret", "aws").catch(e => console.error("Key rotation failed", e));
       await state.updateRepoState(job.data.repoId, { known_file_list: knownFiles, recent_verdicts, health_score: deriveHealthScore(recent_verdicts) });
-      await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: "Potential credential detected in the actual patch.", verdict: { verdict: "block", human_summary: "Potential credential detected in the actual patch.", technical_summary: scan.output, tokens_used: 0 } });
+      const incident = { id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: "Potential credential detected in the actual patch.", verdict: { verdict: "block" as const, human_summary: "Potential credential detected in the actual patch.", technical_summary: scan.output, tokens_used: 0 } };
       await setCommitCheck(job.data, "failure", "Potential credential detected. The change requires human review.");
-      await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: "Potential credential detected in the actual patch.", explainUrl: incidentExplainUrl(config.publicUrl, job.data.repoId, job.data.sha) });
+      await saveAndNotify(incident, { repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: incident.reason, explainUrl: incidentExplainUrl(config.publicUrl, job.data.repoId, job.data.sha) });
       return { route: "remediate", reason: "secret_detected", remediation: await remediateBlockedChange(job.data, priorState.last_scanned_commit_sha) };
     }
     const classification = classifyDiff(diff);
@@ -60,10 +71,10 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
       known_file_list: knownFiles, recent_verdicts, health_score: deriveHealthScore(recent_verdicts), ...addTokenUsage(priorState, cheap.tokens_used + final.tokens_used)
     });
     if (final.verdict === "block") {
-      await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: final.human_summary, verdict: final });
+      const incident = { id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: final.human_summary, verdict: final };
       await setCommitCheck(job.data, "failure", final.human_summary);
       const explainUrl = incidentExplainUrl(config.publicUrl, job.data.repoId, job.data.sha);
-      await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: final.human_summary, explainUrl });
+      await saveAndNotify(incident, { repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: final.human_summary, explainUrl });
       
       const commentBody = `🚨 **AgentGuard blocked this change.**\n\n${final.human_summary}\n\n<details><summary>Technical Summary</summary>\n\n${final.technical_summary}\n</details>\n\n\`\`\`mermaid\ngraph TD\n    Commit["Commit ${job.data.sha.slice(0, 7)}"] --> Blocked((Blocked))\n    Blocked --> Review["Human review required"]\n\`\`\`\n\n[View detailed explanation](${explainUrl})`;
       await postCommitComment(job.data, commentBody).catch(e => console.error("Failed to post comment", e));

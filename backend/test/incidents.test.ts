@@ -15,11 +15,16 @@ describe("IncidentStore", () => {
     const redis = {
       multi: () => transaction,
       zrevrange: async () => index,
-      mget: async (keys: string[]) => keys.map(key => values.get(key) ?? null)
+      mget: async (keys: string[]) => keys.map(key => values.get(key) ?? null),
+      get: async (key: string) => values.get(key) ?? null,
+      set: async (key: string, value: string) => { values.set(key, value); return "OK"; }
     } as unknown as Redis;
 
     const store = new IncidentStore(redis);
     await store.save(incident);
-    expect(await store.list("42")).toEqual([incident]);
+    expect(await store.list("42")).toEqual([{ ...incident, status: "open" }]);
+    await store.recordNotification("42", "abc", { channel: "discord", status: "sent", attemptedAt: "now" });
+    expect((await store.resolve("42", "abc"))?.status).toBe("resolved");
+    expect((await store.get("42", "abc"))?.notification?.status).toBe("sent");
   });
 });
