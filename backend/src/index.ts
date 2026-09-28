@@ -8,7 +8,7 @@ import { connection } from "./queue.js";
 import { IncidentStore } from "./incidents.js";
 import { getRecentCommitDiffs } from "./github.js";
 import { callReasoningModel } from "./llm.js";
-import { RepoStateStore } from "./state.js";
+import { RepoStateStore, addTokenUsage } from "./state.js";
 
 const app = new Probot({
   appId: config.githubAppId,
@@ -90,6 +90,7 @@ createServer(async (request, response) => {
     try {
       const history = await getRecentCommitDiffs(incident.job);
       const explanation = await callReasoningModel(incident.diff, { recent_diffs: history, task: "Explain the last 10 changes leading to the flagged commit in plain developer language, under one minute." });
+      await repoStates.updateRepoState(repoId, addTokenUsage(await repoStates.getRepoState(repoId), explanation.tokens_used));
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end(`<!doctype html><title>AgentGuard Explain</title><style>body{max-width:800px;margin:48px auto;background:#111;color:#eee;font:16px system-ui;line-height:1.6}pre{white-space:pre-wrap;background:#1c1c1f;padding:16px;border-radius:8px}details{margin-top:30px}</style><h1>Why AgentGuard flagged this change</h1><p>${escapeHtml(explanation.human_summary)}</p><h2>Technical details</h2><p>${escapeHtml(explanation.technical_summary)}</p><details><summary>View flagged diff</summary><pre>${escapeHtml(incident.diff)}</pre></details>`);
     } catch (error) { response.writeHead(502); response.end(`Unable to generate explanation: ${escapeHtml(String(error))}`); }

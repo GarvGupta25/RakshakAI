@@ -3,21 +3,23 @@ import { DependencyGraph } from "./graph.js";
 
 export type RiskLevel = "safe" | "needs_review" | "dangerous";
 export type Verdict = "allow" | "allow_with_flag" | "block";
+export type VerdictRecord = { commit_sha: string; risk_level: RiskLevel; verdict: Verdict; timestamp: string };
 
 export interface RepoState {
   repo_id: string;
   last_scanned_commit_sha: string | null;
   known_file_list: string[];
-  recent_verdicts: Array<{ commit_sha: string; risk_level: RiskLevel; verdict: Verdict; timestamp: string }>;
+  recent_verdicts: VerdictRecord[];
   health_score: number;
   tokens_spent_today: number;
+  tokens_spent_on: string;
   auto_corrections_applied: number;
 }
 
 const stateKey = (repoId: string) => `agentguard:repo:${repoId}:state`;
 
 export function emptyRepoState(repoId: string): RepoState {
-  return { repo_id: repoId, last_scanned_commit_sha: null, known_file_list: [], recent_verdicts: [], health_score: 100, tokens_spent_today: 0, auto_corrections_applied: 0 };
+  return { repo_id: repoId, last_scanned_commit_sha: null, known_file_list: [], recent_verdicts: [], health_score: 100, tokens_spent_today: 0, tokens_spent_on: new Date().toISOString().slice(0, 10), auto_corrections_applied: 0 };
 }
 
 export class RepoStateStore {
@@ -62,6 +64,12 @@ export class RepoStateStore {
 export function deriveHealthScore(verdicts: RepoState["recent_verdicts"]): number {
   const weights = { allow: 0, allow_with_flag: 4, block: 20 } as const;
   return Math.max(0, 100 - verdicts.slice(-20).reduce((total, item) => total + weights[item.verdict], 0));
+}
+
+export const appendVerdict = (verdicts: VerdictRecord[], verdict: VerdictRecord) => [...verdicts, verdict].slice(-50);
+
+export function addTokenUsage(state: Pick<RepoState, "tokens_spent_today" | "tokens_spent_on">, tokens: number, today = new Date().toISOString().slice(0, 10)) {
+  return { tokens_spent_today: (state.tokens_spent_on === today ? state.tokens_spent_today : 0) + tokens, tokens_spent_on: today };
 }
 
 export function filesFromDiff(diff: string): string[] {
