@@ -25,4 +25,6 @@ Build the isolated scanner image once with `docker build -t agentguard-sandbox s
 
 Create a GitHub App with repository permissions for Contents (read/write), Checks (read/write), Pull requests (read/write), and Metadata (read-only). Subscribe it to `push`, `pull_request`, `check_run`, `installation`, and `installation_repositories`; set its webhook URL to `/webhooks/github` and setup URL to `/setup`. Put the generated App ID, app slug, private key, and webhook secret into `.env`; never commit them. The dashboard's install button opens `/install`, which redirects to GitHub's repository-selection flow.
 
+Set `PUBLIC_URL` to the externally reachable backend origin so Discord alerts and GitHub comments link to the rendered explanation page. Set `DASHBOARD_URL` to the deployed dashboard origin for the post-install redirect.
+
 `ENABLE_BRANCH_ROLLBACK` is deliberately disabled by default. When enabled, AgentGuard only resets an unprotected branch to its stored last-known-safe SHA. Credential rotation remains provider-specific and must be configured with an OIDC role before production use.

@@ -11,5 +11,6 @@ export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY,
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL,
   enableBranchRollback: process.env.ENABLE_BRANCH_ROLLBACK === "true",
-  dashboardUrl: process.env.DASHBOARD_URL ?? "http://localhost:3001"
+  dashboardUrl: process.env.DASHBOARD_URL ?? "http://localhost:3001",
+  publicUrl: process.env.PUBLIC_URL ?? "http://localhost:3000"
 };

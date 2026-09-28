@@ -13,6 +13,7 @@ import { IncidentStore } from "./incidents.js";
 import { applySafeCorrection } from "./corrections.js";
 import { remediateBlockedChange } from "./remediation.js";
 import { rotateCompromisedKeyOIDC } from "./oidc.js";
+import { incidentExplainUrl } from "./urls.js";
 
 const locks = new RepoLock(connection);
 const state = new RepoStateStore(connection);
@@ -33,7 +34,7 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
       await state.updateRepoState(job.data.repoId, { known_file_list: knownFiles, recent_verdicts, health_score: deriveHealthScore(recent_verdicts) });
       await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: "Potential credential detected in the actual patch.", verdict: { verdict: "block", human_summary: "Potential credential detected in the actual patch.", technical_summary: scan.output, tokens_used: 0 } });
       await setCommitCheck(job.data, "failure", "Potential credential detected. The change requires human review.");
-      await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: "Potential credential detected in the actual patch.", explainUrl: `/explain?repo=${job.data.repoId}&sha=${job.data.sha}` });
+      await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: "Potential credential detected in the actual patch.", explainUrl: incidentExplainUrl(config.publicUrl, job.data.repoId, job.data.sha) });
       return { route: "remediate", reason: "secret_detected", remediation: await remediateBlockedChange(job.data, priorState.last_scanned_commit_sha) };
     }
     const classification = classifyDiff(diff);
@@ -61,10 +62,10 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
     if (final.verdict === "block") {
       await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: final.human_summary, verdict: final });
       await setCommitCheck(job.data, "failure", final.human_summary);
-      const explainUrl = `/explain?repo=${job.data.repoId}&sha=${job.data.sha}`;
+      const explainUrl = incidentExplainUrl(config.publicUrl, job.data.repoId, job.data.sha);
       await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: final.human_summary, explainUrl });
       
-      const commentBody = `🚨 **AgentGuard blocked this change.**\n\n${final.human_summary}\n\n<details><summary>Technical Summary</summary>\n\n${final.technical_summary}\n</details>\n\n\`\`\`mermaid\ngraph TD\n    Commit["Commit ${job.data.sha.slice(0, 7)}"] --> Blocked((Blocked))\n    Blocked -.->|Reason| Reason["${final.human_summary.replace(/"/g, "'")}"]\n\`\`\`\n\n[View detailed explanation](${config.discordWebhookUrl ? 'javascript:void(0)' : 'javascript:void(0)' /* fallback, real url would require base url config */})`;
+      const commentBody = `🚨 **AgentGuard blocked this change.**\n\n${final.human_summary}\n\n<details><summary>Technical Summary</summary>\n\n${final.technical_summary}\n</details>\n\n\`\`\`mermaid\ngraph TD\n    Commit["Commit ${job.data.sha.slice(0, 7)}"] --> Blocked((Blocked))\n    Blocked --> Review["Human review required"]\n\`\`\`\n\n[View detailed explanation](${explainUrl})`;
       await postCommitComment(job.data, commentBody).catch(e => console.error("Failed to post comment", e));
     } else await setCommitCheck(job.data, "success", final.human_summary);
     return { route: final.verdict === "block" ? "remediate" : "allow", cheap, final, ...(final.verdict === "block" ? { remediation: await remediateBlockedChange(job.data, priorState.last_scanned_commit_sha) } : {}) };
