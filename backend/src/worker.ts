@@ -27,10 +27,11 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
     const knownFiles = [...new Set([...priorState.known_file_list, ...filesFromDiff(diff)])].slice(-5_000);
     const scan = await scanDiffInSandbox(diff);
     if (scan.secretsFound) {
+      const recent_verdicts = [...priorState.recent_verdicts, { commit_sha: job.data.sha, risk_level: "dangerous" as const, verdict: "block" as const, timestamp: new Date().toISOString() }].slice(-50);
       // Attempt OIDC-based key rotation before rollback
       await rotateCompromisedKeyOIDC("detected-secret", "aws").catch(e => console.error("Key rotation failed", e));
-      await state.updateRepoState(job.data.repoId, { known_file_list: knownFiles });
-      await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: "Potential credential detected in the actual patch." });
+      await state.updateRepoState(job.data.repoId, { known_file_list: knownFiles, recent_verdicts, health_score: deriveHealthScore(recent_verdicts) });
+      await incidents.save({ id: `${job.data.repoId}:${job.data.sha}`, job: job.data, diff, createdAt: new Date().toISOString(), reason: "Potential credential detected in the actual patch.", verdict: { verdict: "block", human_summary: "Potential credential detected in the actual patch.", technical_summary: scan.output } });
       await setCommitCheck(job.data, "failure", "Potential credential detected. The change requires human review.");
       await notifier.sendNotification({ repo: `${job.data.owner}/${job.data.repo}`, sha: job.data.sha, summary: "Potential credential detected in the actual patch.", explainUrl: `/explain?repo=${job.data.repoId}&sha=${job.data.sha}` });
       return { route: "remediate", reason: "secret_detected", remediation: await remediateBlockedChange(job.data, priorState.last_scanned_commit_sha) };

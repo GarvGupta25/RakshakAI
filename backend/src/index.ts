@@ -69,6 +69,15 @@ createServer(async (request, response) => {
   if (url.pathname === "/setup" && request.method === "GET") {
     response.writeHead(302, { location: config.dashboardUrl }); response.end(); return;
   }
+  const incidentListMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)\/incidents$/);
+  if (incidentListMatch && request.method === "GET") {
+    response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(await incidents.list(incidentListMatch[1]))); return;
+  }
+  const incidentMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)\/incidents\/([^/]+)$/);
+  if (incidentMatch && request.method === "GET") {
+    const incident = await incidents.get(incidentMatch[1], incidentMatch[2]);
+    response.writeHead(incident ? 200 : 404, { "content-type": "application/json" }); response.end(JSON.stringify(incident ?? { error: "Incident not found" })); return;
+  }
   const stateMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)$/);
   if (stateMatch && request.method === "GET") {
     response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(await repoStates.getRepoState(stateMatch[1]))); return;
