@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDependencyGraph, renderMermaid } from "../src/graph.js";
+import { compactGraphContext, parseDependencyGraph, publicGraphSnapshot, renderMermaid } from "../src/graph.js";
 
 describe("dependency graph parsing", () => {
   it("resolves local imports and ignores package dependencies", () => {
@@ -21,5 +21,11 @@ describe("dependency graph parsing", () => {
     expect(result).toMatchObject({ filesChanged: 1, nodesChanged: 2, edgesChanged: 0 });
     expect((await graph.getNode("src/b.ts"))?.content).toContain("import");
     expect((await graph.getNode("src/a.ts#function:a"))?.content).toContain("2");
+  });
+  it("bounds model context and strips source from the dashboard payload", () => {
+    const graph = parseDependencyGraph({ "src/a.ts": `export function a() { return "${"x".repeat(1_000)}" }` });
+    const compact = compactGraphContext(graph, 200);
+    expect(JSON.stringify(compact).length).toBeLessThan(700);
+    expect(publicGraphSnapshot(graph).nodes[0]).not.toHaveProperty("content");
   });
 });

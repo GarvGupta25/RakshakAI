@@ -81,6 +81,19 @@ export function renderMermaid(graph: GraphSnapshot) {
   return ["graph LR", ...labels, ...edges].join("\n");
 }
 
+export function compactGraphContext(graph: GraphSnapshot, maxCharacters = 12_000): GraphSnapshot {
+  const nodes = graph.nodes.slice(0, 40);
+  const symbolParents = new Set(nodes.flatMap(node => node.parent ? [node.parent] : []));
+  const contentBudget = Math.max(80, Math.floor(maxCharacters / Math.max(1, nodes.length)));
+  const compactNodes = nodes.map(node => ({ ...node, content: node.type === "file" && symbolParents.has(node.id) ? "" : node.content.slice(0, contentBudget) }));
+  const ids = new Set(compactNodes.map(node => node.id));
+  return { nodes: compactNodes, edges: graph.edges.filter(edge => ids.has(edge.from) && ids.has(edge.to)).slice(0, 80) };
+}
+
+export function publicGraphSnapshot(graph: GraphSnapshot) {
+  return { nodes: graph.nodes.map(({ content: _content, ...node }) => node), edges: graph.edges };
+}
+
 export class DependencyGraph {
   constructor(private readonly redis: Redis, private readonly repoId: string) {}
   private key(type: "nodes" | "edges" | "reverse" | "dirty" | "last-dirty" | "member-files") { return `agentguard:repo:${this.repoId}:graph:${type}`; }

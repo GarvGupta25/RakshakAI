@@ -9,7 +9,7 @@ import { IncidentStore } from "./incidents.js";
 import { getRecentCommitDiffs, getRepositorySources } from "./github.js";
 import { callReasoningModel } from "./llm.js";
 import { RepoStateStore, addTokenUsage } from "./state.js";
-import { DependencyGraph } from "./graph.js";
+import { DependencyGraph, publicGraphSnapshot } from "./graph.js";
 
 const app = new Probot({
   appId: config.githubAppId,
@@ -93,7 +93,7 @@ createServer(async (request, response) => {
   }
   const graphMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)\/graph$/);
   if (graphMatch && request.method === "GET") {
-    response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(await new DependencyGraph(connection, graphMatch[1]).snapshot())); return;
+    response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(publicGraphSnapshot(await new DependencyGraph(connection, graphMatch[1]).snapshot()))); return;
   }
   if (url.pathname === "/explain") {
     const repoId = url.searchParams.get("repo"); const sha = url.searchParams.get("sha");

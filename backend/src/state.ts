@@ -1,5 +1,5 @@
 import type { Redis } from "ioredis";
-import { DependencyGraph } from "./graph.js";
+import { compactGraphContext, DependencyGraph } from "./graph.js";
 
 export type RiskLevel = "safe" | "needs_review" | "dangerous";
 export type Verdict = "allow" | "allow_with_flag" | "block";
@@ -56,7 +56,7 @@ export class RepoStateStore {
     }
     
     return { 
-      dirty_subgraph: dirtySubgraph,
+      dirty_subgraph: compactGraphContext(dirtySubgraph),
       recent_verdicts: state.recent_verdicts.slice(-5) 
     };
   }
