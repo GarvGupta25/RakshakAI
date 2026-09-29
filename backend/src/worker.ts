@@ -15,6 +15,7 @@ import { remediateBlockedChange } from "./remediation.js";
 import { rotateCompromisedKeyOIDC } from "./oidc.js";
 import { incidentExplainUrl } from "./urls.js";
 import { DependencyGraph, renderMermaid } from "./graph.js";
+import { graphStore } from "./graph-store.js";
 
 const locks = new RepoLock(connection);
 const state = new RepoStateStore(connection);
@@ -39,7 +40,7 @@ export const worker = new Worker<PushJob>("push-analysis", async job => {
     const diff = await getCommitDiff(job.data);
     const priorState = await state.getRepoState(job.data.repoId);
     const changedFiles = filesFromDiff(diff);
-    await new DependencyGraph(connection, job.data.repoId).updateFiles(await getChangedSources(job.data, changedFiles));
+    await new DependencyGraph(graphStore, job.data.repoId).updateFiles(await getChangedSources(job.data, changedFiles));
     const knownFiles = [...new Set([...priorState.known_file_list, ...changedFiles])].slice(-5_000);
     const record = (risk_level: RiskLevel, verdict: Verdict, tier: AnalysisTier, summary: string, details: Partial<VerdictRecord> = {}): VerdictRecord => ({ commit_sha: job.data.sha, risk_level, verdict, timestamp: new Date().toISOString(), tier, latency_ms: Date.now() - startedAt, files: changedFiles, summary, ...details });
     const scan = await scanDiffInSandbox(diff);

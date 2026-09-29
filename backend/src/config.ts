@@ -3,6 +3,7 @@ import "dotenv/config";
 export const config = {
   port: Number(process.env.PORT ?? 3000),
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
+  databaseUrl: process.env.DATABASE_URL ?? "postgres://agentguard:agentguard@localhost:5432/agentguard",
   webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
   githubAppId: process.env.GITHUB_APP_ID,
   githubAppSlug: process.env.GITHUB_APP_SLUG,

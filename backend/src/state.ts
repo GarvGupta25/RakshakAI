@@ -1,5 +1,6 @@
 import type { Redis } from "ioredis";
 import { compactGraphContext, DependencyGraph } from "./graph.js";
+import { graphStore } from "./graph-store.js";
 
 export type RiskLevel = "safe" | "needs_review" | "dangerous";
 export type Verdict = "allow" | "allow_with_flag" | "block";
@@ -8,6 +9,10 @@ export type VerdictRecord = { commit_sha: string; risk_level: RiskLevel; verdict
 
 export interface RepoState {
   repo_id: string;
+  owner?: string;
+  repo?: string;
+  installation_id?: number;
+  default_branch?: string;
   last_scanned_commit_sha: string | null;
   known_file_list: string[];
   recent_verdicts: VerdictRecord[];
@@ -39,7 +44,7 @@ export class RepoStateStore {
 
   async getRelevantContext(repoId: string, diff: string) {
     const state = await this.getRepoState(repoId);
-    const graph = new DependencyGraph(this.redis, repoId);
+    const graph = new DependencyGraph(graphStore, repoId);
     
     // Mark files from diff as dirty in the graph
     const changedFiles = filesFromDiff(diff);

@@ -10,6 +10,7 @@ import { getRecentCommitDiffs, getRepositorySources } from "./github.js";
 import { callReasoningModel } from "./llm.js";
 import { RepoStateStore, addTokenUsage } from "./state.js";
 import { DependencyGraph, publicGraphSnapshot } from "./graph.js";
+import { graphStore } from "./graph-store.js";
 
 const app = new Probot({
   appId: config.githubAppId,
@@ -50,10 +51,10 @@ app.on(["installation.created", "installation_repositories.added" as any], async
   const repositories = "repositories" in context.payload ? context.payload.repositories : (context.payload as any).repositories_added || [];
   for (const repo of repositories) {
     const repoId = String(repo.id);
-    await repoStates.updateRepoState(repoId, { known_file_list: [] });
     const owner = "owner" in repo ? repo.owner.login : context.payload.installation.account.login;
+    await repoStates.updateRepoState(repoId, { owner, repo: repo.name, installation_id: context.payload.installation.id, default_branch: repo.default_branch, known_file_list: [] });
     const sources = await getRepositorySources({ owner, repo: repo.name, installationId: context.payload.installation.id, ref: repo.default_branch });
-    const graph = await new DependencyGraph(connection, repoId).buildFullGraph(sources);
+    const graph = await new DependencyGraph(graphStore, repoId).buildFullGraph(sources);
     await repoStates.updateRepoState(repoId, { known_file_list: Object.keys(sources) });
     context.log.info({ repoId, repoName: repo.name, graph }, "provisioned repository dependency graph");
   }
@@ -93,7 +94,19 @@ createServer(async (request, response) => {
   }
   const graphMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)\/graph$/);
   if (graphMatch && request.method === "GET") {
-    response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(publicGraphSnapshot(await new DependencyGraph(connection, graphMatch[1]).snapshot()))); return;
+    response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(publicGraphSnapshot(await new DependencyGraph(graphStore, graphMatch[1]).snapshot()))); return;
+  }
+  const graphRebuildMatch = url.pathname.match(/^\/api\/repositories\/([^/]+)\/graph\/rebuild$/);
+  if (graphRebuildMatch && request.method === "POST") {
+    const repo = await repoStates.getRepoState(graphRebuildMatch[1]);
+    if (!repo.owner || !repo.repo || !repo.installation_id) { response.writeHead(409, { "content-type": "application/json" }); response.end(JSON.stringify({ error: "Repository installation metadata is unavailable" })); return; }
+    try {
+      const sources = await getRepositorySources({ owner: repo.owner, repo: repo.repo, installationId: repo.installation_id, ref: repo.default_branch });
+      const graph = await new DependencyGraph(graphStore, repo.repo_id).buildFullGraph(sources);
+      await repoStates.updateRepoState(repo.repo_id, { known_file_list: Object.keys(sources) });
+      response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify(graph));
+    } catch (error) { response.writeHead(502, { "content-type": "application/json" }); response.end(JSON.stringify({ error: String(error) })); }
+    return;
   }
   if (url.pathname === "/explain") {
     const repoId = url.searchParams.get("repo"); const sha = url.searchParams.get("sha");

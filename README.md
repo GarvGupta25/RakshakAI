@@ -6,7 +6,11 @@ AgentGuard is a persistent, diff-first GitHub App orchestrator for teams using c
 
 `GitHub webhook → BullMQ → per-repo Redis lock → disposable Docker sandbox → diff scan/classification → structured LLM verdict → GitHub checks/notifications`
 
-The server runs without external credentials for local development. Configure `.env` from `.env.example` to enable Redis, GitHub App, model, and Discord integrations.
+## Phase 2 graph
+
+On installation, AgentGuard parses JavaScript and TypeScript with Tree-sitter into PostgreSQL-backed file, function, class, import, and call relationships. Pushes fetch changed sources only, persist graph deltas, propagate dirtiness one hop to callers/importers, and send a bounded dirty subgraph to the model. `GET /api/repositories/:id/graph` returns source-free visualization data; `POST /api/repositories/:id/graph/rebuild` performs a recovery rebuild from GitHub.
+
+Configure `.env` from `.env.example` to enable Redis, PostgreSQL, GitHub App, model, and Discord integrations.
 
 ## Local development
 

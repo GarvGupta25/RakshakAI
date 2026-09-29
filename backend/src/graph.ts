@@ -1,5 +1,5 @@
 import { posix } from "node:path";
-import type { Redis } from "ioredis";
+import type { GraphStore } from "./graph-store.js";
 import Parser from "tree-sitter";
 import ts from "tree-sitter-typescript";
 
@@ -95,7 +95,7 @@ export function publicGraphSnapshot(graph: GraphSnapshot) {
 }
 
 export class DependencyGraph {
-  constructor(private readonly redis: Redis, private readonly repoId: string) {}
+  constructor(private readonly redis: GraphStore, private readonly repoId: string) {}
   private key(type: "nodes" | "edges" | "reverse" | "dirty" | "last-dirty" | "member-files") { return `agentguard:repo:${this.repoId}:graph:${type}`; }
   private membersKey(file: string) { return `agentguard:repo:${this.repoId}:graph:members:${file}`; }
   async setNode(node: GraphNode) { await this.redis.hset(this.key("nodes"), node.id, JSON.stringify(node)); }
